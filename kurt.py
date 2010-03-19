@@ -61,7 +61,6 @@ class EditorTab(QWidget):
 		
 		self.textEdit = QTextEdit()
 		self.connect(self.textEdit.document(), SIGNAL("modificationChanged(bool)"), self.modified)
-		self.textEdit.setPlainText("")
 
 		# Config options
 		self.textEdit.setStyleSheet("""
@@ -82,6 +81,9 @@ class EditorTab(QWidget):
 		
 	def modified(self, modified):
 		self.window.tab_modified(self, modified)
+		
+	def isModified(self):
+		return self.textEdit.document().isModified()
 		
 	def open_file(self, path):
 		if os.path.exists(path):
@@ -130,12 +132,23 @@ class MainWindow(QMainWindow):
 		self.tabWidget.setMovable(True)
 		self.setCentralWidget(self.tabWidget)
 		
+		self.connect(self.tabWidget, SIGNAL("currentChanged(int)"), self.tabSwitched)
+		
 	def showEvent(self, event):
 		# If no tabs exist yet, create a default one
 		if self.tabWidget.count() == 0:
 			self.new_tab()
 
-	def new_tab(self, title="New File"):		
+	def updateWindowTitle(self):
+		path = self.tabWidget.currentWidget().path
+		filename = os.path.basename(path) if path else "New File"
+		self.setWindowTitle(filename + "[*] - Kurt")
+
+	def tabSwitched(self, index):
+		self.setWindowModified(self.tabWidget.currentWidget().isModified())
+		self.updateWindowTitle()
+
+	def new_tab(self, title="New File"):	
 		editorTab = EditorTab(self)
 		index = self.tabWidget.addTab(editorTab, title)
 		self.tabWidget.setCurrentIndex(index) # Switch to the new tab
@@ -153,6 +166,7 @@ class MainWindow(QMainWindow):
 		index = self.tabWidget.indexOf(tab)
 		color = Qt.darkGray if modified else Qt.black
 		self.tabWidget.tabBar().setTabTextColor(index, color)
+		self.setWindowModified(modified)
 		
 	def open_file(self, filename):
 		self.new_tab().open_file(filename)
