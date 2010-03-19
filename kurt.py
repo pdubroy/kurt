@@ -60,7 +60,9 @@ class EditorTab(QWidget):
 		self.path = None
 		
 		self.textEdit = QTextEdit()
-		self.connect(self.textEdit.document(), SIGNAL("modificationChanged(bool)"), self.modified)
+		doc = self.textEdit.document()
+		self.connect(doc, SIGNAL("modificationChanged(bool)"), self._modificationChanged)
+		self.connect(doc, SIGNAL("contentsChanged()"), self._contentsChanged)
 
 		# Config options
 		self.textEdit.setStyleSheet("""
@@ -79,8 +81,19 @@ class EditorTab(QWidget):
 		self.keyFilter = KeyFilter(window, self)
 		self.setEventFilter(self.keyFilter)
 		
-	def modified(self, modified):
+		self._save_timer = QTimer(this)
+		self.connect(self._save_timer, SIGNAL("timeout()"), self._saveTimeout)
+		
+	def _modificationChanged(self, modified):
 		self.window.tab_modified(self, modified)
+		
+	def _contentsChanged(self):
+		self._save_timer.stop()
+		self._save_timer.start(500)
+		
+	def _saveTimeout(self):
+		if self.path:
+			self.save()
 		
 	def isModified(self):
 		return self.textEdit.document().isModified()
@@ -142,10 +155,10 @@ class MainWindow(QMainWindow):
 	def updateWindowTitle(self):
 		path = self.tabWidget.currentWidget().path
 		filename = os.path.basename(path) if path else "New File"
-		self.setWindowTitle(filename + "[*] - Kurt")
+		self.setWindowTitle(filename + " - Kurt")
 
-	def tabSwitched(self, index):
-		self.setWindowModified(self.tabWidget.currentWidget().isModified())
+	def tabSwitched(self, index):#
+#		self.setWindowModified(self.tabWidget.currentWidget().isModified())
 		self.updateWindowTitle()
 
 	def new_tab(self, title="New File"):	
@@ -166,7 +179,7 @@ class MainWindow(QMainWindow):
 		index = self.tabWidget.indexOf(tab)
 		color = Qt.darkGray if modified else Qt.black
 		self.tabWidget.tabBar().setTabTextColor(index, color)
-		self.setWindowModified(modified)
+#		self.setWindowModified(modified)
 		
 	def open_file(self, filename):
 		self.new_tab().open_file(filename)
