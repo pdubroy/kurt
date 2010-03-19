@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 
 from PyQt4.QtCore import *
@@ -9,7 +10,7 @@ class KeyFilter(QObject):
 	SHORTCUTS = {
 		("Control", "T"): lambda w, t: w.new_tab(),
 		("Control", "S"): lambda w, t: t.save(),
-		("Control", "W"): lambda w, t: t.close()
+		("Control", "W"): lambda w, t: t.close(),
 	}
 
 	def __init__(self, window, tab, *args):
@@ -88,6 +89,8 @@ class EditorTab(QWidget):
 		self.window.tab_modified(self, modified)
 		
 	def _contentsChanged(self):
+		# When the contents of the document change, save the document if no
+		# more changes are made after 500 seconds have elapsed
 		self._save_timer.stop()
 		self._save_timer.start(500)
 		
@@ -183,14 +186,20 @@ class MainWindow(QMainWindow):
 		
 	def open_file(self, filename):
 		self.new_tab().open_file(filename)
+
+def backup_filename(path):
+	return path + ".bak"
 		
-if __name__== "__main__":
+def start_editor(files):
 	app = QApplication(sys.argv)
 	win = MainWindow()
-	for each in sys.argv[1:]:
+	for each in files:
 		win.open_file(each)
-	# 624x722 is exactly half the screen on a 13" MacBook running Windows 7
+	# 624 is half the screen width on a 13" MacBook running Windows 7
 	win.resize(624, 600)
 	win.show()
 	app.connect(app, SIGNAL("lastWindowClosed()"), app, SLOT("quit()"))
 	app.exec_()
+
+if __name__== "__main__":
+	start_editor(sys.argv[1:])
