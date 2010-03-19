@@ -81,7 +81,7 @@ class EditorTab(QWidget):
 		self.keyFilter = KeyFilter(window, self)
 		self.setEventFilter(self.keyFilter)
 		
-		self._save_timer = QTimer(this)
+		self._save_timer = QTimer(self)
 		self.connect(self._save_timer, SIGNAL("timeout()"), self._saveTimeout)
 		
 	def _modificationChanged(self, modified):
