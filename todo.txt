@@ -1,0 +1,5 @@
+Features:
+- self-hosting: bring down the current instance, bring up a new instance with all of the previous content
+
+Bugs:
+- handle Ctrl-W when there is only one tab -- create a new one
