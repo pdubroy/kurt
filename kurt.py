@@ -64,7 +64,7 @@ class KeyFilter(QObject):
 				return True
 		return QObject.eventFilter(self, obj, event)
 		
-class EditorTab(QWidget):
+class Editor(QWidget):
 
 	# Emitted when the title of the tab has changed
 	titleChanged = pyqtSignal(str)
@@ -176,6 +176,16 @@ class EditorTab(QWidget):
 		self.textEdit.installEventFilter(filter)	
 
 class MainWindow(QMainWindow):
+
+	# Emitted when the window is moved or resized
+	geometryChanged = pyqtSignal()
+	
+	# Emitted when tabs are opened or closed, etc.
+	contentsChanged = pyqtSignal()
+	
+	# Emitted when the window is closed (by user action)
+	windowClosed = pyqtSignal()
+
 	def __init__(self, *args):
 		QMainWindow.__init__(self, *args)
 		self.tabWidget = QTabWidget()
@@ -188,7 +198,19 @@ class MainWindow(QMainWindow):
 		# If no tabs exist yet, create a default one
 		if self.tabWidget.count() == 0:
 			self.new_tab()
+		QMainWindow.showEvent(self, event)
+			
+	def moveEvent(self, event):
+		self.geometryChanged.emit()
+		QMainWindow.moveEvent(self, event)
+		
+	def resizeEvent(self, event):
+		self.geometryChanged.emit()
+		QMainWindow.resizeEvent(self, event)
 
+	def closeEvent(self, event):
+		QMainWindow.closeEvent(self, event)
+		
 	def close(self):
 		self.currentTab().save()
 		QApplication.exit(1)
@@ -210,17 +232,17 @@ class MainWindow(QMainWindow):
 			state.open_files.append(None)
 
 	def new_tab(self, filename=None):
-		editorTab = EditorTab(self)
-		editorTab.modificationChanged.connect(self.tabModificationChanged)
-		editorTab.titleChanged.connect(self.tabTitleChanged)
+		editor = Editor(self)
+		editor.modificationChanged.connect(self.tabModificationChanged)
+		editor.titleChanged.connect(self.tabTitleChanged)
 
-		index = self.tabWidget.addTab(editorTab, editorTab.getTitle())
+		index = self.tabWidget.addTab(editor, editor.getTitle())
 
 		if filename:
-			editorTab.open_file(filename)
+			editor.open_file(filename)
 		self.tabWidget.setCurrentIndex(index) # Switch to the new tab
-		editorTab.setFocus()
-		return editorTab
+		self.contentsChanged.emit()
+		editor.setFocus()
 
 	def getTab(self, widgetOrIndex):
 		"""Given either the widget or its index, return the widget."""
@@ -242,12 +264,16 @@ class MainWindow(QMainWindow):
 		if self.tabWidget.count() == 0:
 			self.new_tab()
 		self.tabWidget.currentWidget().setFocus()
+		self.contentsChanged.emit()
 		
 	def tabTitleChanged(self, title):
 		tab = self.sender()
 		self.setTabTitle(tab, title)
 		if tab == self.tabWidget.currentWidget():
 			self.updateWindowTitle()
+
+		# Assume that the open files have changed
+		self.contentsChanged.emit()
 		
 	def tabModificationChanged(self, modified):
 		# Indicate whether or not a tab is modified by the color of its label
@@ -261,17 +287,92 @@ class MainWindow(QMainWindow):
 		if len(filename) > 0:
 			self.new_tab(filename)
 			state.open_files[state.current_tab_index] = filename
+			
+	def open_files(self, files):
+		for file in files:
+			self.open_file(file)
+			
+	def getOpenFiles(self):
+		"""Return a list of the full paths of all the files open in the window."""
+		result = []
+		for i in xrange(self.tabWidget.count()):
+			result.append(self.getTab(i).path)
+		return result
+			
+class SessionManager(QObject):
+	def __init__(self):
+		QObject.__init__(self)
 
-def backup_filename(path):
-	return path + ".bak"
+		self.settings = QSettings(
+			QSettings.IniFormat,
+			QSettings.UserScope,
+			"dubroy.com", 
+			"kurt")
+			
+		self.restoring = False
 		
-def start_editor(files):
+		# Figure out if the last session closed cleanly
+		self.closed_cleanly = True
+		if self.settings.contains("session/closed-cleanly"):
+			self.closed_cleanly = self.settings.value("session/closed-cleanly").toPyObject()
+		self.settings.setValue("session/closed-cleanly", False)
+	
+	def set_window(self, win):
+		win.geometryChanged.connect(self.geometryChanged)
+		win.contentsChanged.connect(self.saveTabs)
+		win.windowClosed.connect(self.windowClosed)
+		self.win = win
+		
+	def geometryChanged(self):
+		"""Saves the width, height, and position of the window."""
+		if not self.restoring:
+			self.settings.setValue("session/geometry", self.win.saveGeometry())
+
+	def saveTabs(self):
+		"""Saves a list of all the files that are currently open in tabs."""
+		if not self.restoring:
+			for i, filename in enumerate(self.win.getOpenFiles()):
+				self.settings.setValue("session/tab%d" % i, filename)
+			
+	def windowClosed(self):
+		self.settings.setValue("session/closed-cleanly", True)
+			
+	def restoreTabs(self):
+		self.restoring = True
+		self.settings.beginGroup("session")
+		for key in self.settings.childKeys():
+			if str(key).startswith("tab"):
+				# The value returned is a QVariant, which requires some massaging
+				val = self.settings.value(key).toPyObject()
+				if val is not None:
+					self.win.open_file(str(val))
+				# When the tabs reach a high-water marks, some of the keys will
+				# become stale. Remove all the tab keys to prevent this.
+				self.settings.remove(key)
+		self.settings.endGroup()
+		self.restoring = False
+		
+	def restore_geometry(self):
+		# Try to restore the previous settings
+		if self.settings.contains("session/geometry"):
+			self.win.restoreGeometry(self.settings.value("session/geometry").toByteArray())
+		
+	def restore_session(self):
+		self.restore_geometry()
+		self.restoreTabs()
+		
+def start_editor(files=None):
 	app = QApplication(sys.argv)
+	# Create the session manager as early as possible, so we can properly
+	# restore the state after a crash
+	session_manager = SessionManager()
 	win = MainWindow()
-	for each in files:
-		win.open_file(each)
-	# 624 is half the screen width on a 13" MacBook running Windows 7
-	win.resize(624, 600)
+	session_manager.set_window(win)
+	if not session_manager.closed_cleanly or len(files) == 0:
+		session_manager.restore_session()
+	else:
+		session_manager.restore_geometry()
+	win.open_files(files)
 	win.show()
 	app.lastWindowClosed.connect(app.quit)
 	return app.exec_()
