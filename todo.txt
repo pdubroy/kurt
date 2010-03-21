@@ -1,5 +1,9 @@
 Features:
-- self-hosting: bring down the current instance, bring up a new instance with all of the previous content
+- drag and drop files to create a new tab
+- syntax highlighting for Python
+- proper tab/shift-tab handling
+- hitting enter maintains indent of previous line
 
 Bugs:
-- handle Ctrl-W when there is only one tab -- create a new one
+- fix reloadAndRestart
+- unhandled exception when closing last tab
