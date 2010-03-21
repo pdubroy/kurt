@@ -5,14 +5,6 @@ import sys
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
-# Keep a list of the files that are open. This should remain synchronized
-# with the tab state. Mostly used for debugging, so we can restore the state.
-class _EditorState:
-	pass
-state = _EditorState()
-state.open_files = []
-state.current_tab_index = -1
-
 class KeyFilter(QObject):
 
 	SHORTCUTS = {
@@ -20,7 +12,8 @@ class KeyFilter(QObject):
 		("Control", "O"): lambda w, t: w.open_file(),
 		("Control", "S"): lambda w, t: t.save(),
 		("Control", "W"): lambda w, t: t.close(),
-		("Control", "R"): lambda w, t: w.close()
+		("Control", "R"): lambda w, t: w.close(),
+		("Control", "F"): lambda w, t: t.find()
 	}
 
 	def __init__(self, window, tab, *args):
@@ -63,7 +56,81 @@ class KeyFilter(QObject):
 				handler(self.window, self.tab)
 				return True
 		return QObject.eventFilter(self, obj, event)
+
+class FindBar(QWidget):
+	def __init__(self, textEdit, *args):
+		QWidget.__init__(self, *args)
+		self.textEdit = textEdit
+		layout = QHBoxLayout()
+		layout.setContentsMargins(4, 2, 4, 4)
+		self.setLayout(layout)
 		
+		layout.addWidget(QLabel(text="Find:"))
+
+		self.lineEdit = QLineEdit()
+		layout.addWidget(self.lineEdit)
+		
+		self.lineEdit.installEventFilter(self)
+		self.lineEdit.textEdited.connect(self._findText)
+		self.setFocusProxy(self.lineEdit)
+		
+	def showEvent(self, event):
+		self.lineEdit.selectAll()
+		
+	def eventFilter(self, obj, event):
+		if (event.type() == QEvent.KeyPress
+		and event.modifiers() == Qt.NoModifier):
+			key = event.key()
+			if key == Qt.Key_Escape:
+				self._clearSelection()
+				self.hide()
+				return True
+			elif key == Qt.Key_Return or key == Qt.Key_Down:
+				# Go to the next match
+				self._findText(self.lineEdit.text(), False)
+				return True
+			elif key == Qt.Key_Up:
+				# Go to the previous match
+				self._findText(self.lineEdit.text(), False, False)
+				return True
+		return QObject.eventFilter(self, obj, event)
+		
+	def _clearSelection(self):
+		cursor = self.textEdit.textCursor()
+		cursor.clearSelection()
+		self.textEdit.setTextCursor(cursor)
+		
+	def _setBackground(self, found):
+		foundStyle = "QLineEdit { background-color: white; color: black; }"
+		notFoundStyle = "QLineEdit { background-color: #FF6666; color: white; }"
+		self.lineEdit.setStyleSheet(foundStyle if found else notFoundStyle)
+		
+	def _findText(self, text, includeSelection=True, forwards=True):
+		if len(text) == 0:
+			self._setBackground(found=True)
+			self._clearSelection()
+		else:
+			cursor = self.textEdit.textCursor()
+			if includeSelection or not forwards:
+				start = cursor.selectionStart()
+			else:
+				start = cursor.selectionEnd()
+			flags = QTextDocument.FindFlags()
+			if not forwards:
+				flags = QTextDocument.FindBackward
+			cursor = self.textEdit.document().find(text, start, flags)
+			if not cursor.isNull():
+				self.textEdit.setTextCursor(cursor)
+			self._setBackground(found=not cursor.isNull())
+
+	def open(self, text=None):
+		"""Basically just a synonym for show(), but allows the text to be set."""
+		if text:
+			self.lineEdit.setText(text)
+		self._setBackground(found=True)
+		self.show()
+		self.setFocus()
+			
 class Editor(QWidget):
 
 	# Emitted when the title of the tab has changed
@@ -78,6 +145,11 @@ class Editor(QWidget):
 		self.window = window
 		self.path = None # Path to the file that is open in this tab
 		
+		layout = QVBoxLayout()
+		layout.setContentsMargins(0, 2, 0, 0)
+		layout.setSpacing(0)
+		self.setLayout(layout)
+
 		self.textEdit = QTextEdit()
 		doc = self.textEdit.document()
 		doc.modificationChanged.connect(self.modificationChanged)
@@ -93,14 +165,15 @@ class Editor(QWidget):
 			}
 		""")
 		
-		layout = QVBoxLayout()
-		layout.setContentsMargins(0, 2, 0, 0)
-		self.setLayout(layout)
+		self.findBar = FindBar(self.textEdit)
+		self.findBar.hide()
+		layout.addWidget(self.findBar)
+
 		layout.addWidget(self.textEdit)
 		self.setFocusProxy(self.textEdit)
 		
 		self.keyFilter = KeyFilter(window, self)
-		self.setEventFilter(self.keyFilter)
+		self.textEdit.installEventFilter(self.keyFilter)
 		
 		self._save_timer = QTimer(self)		
 		self._save_timer.timeout.connect(self._saveTimeout)
@@ -137,6 +210,9 @@ class Editor(QWidget):
 		self.titleChanged.emit(self.getTitle())
 
 	def save(self):
+		if not self.textEdit.document().isModified():
+			return
+
 		if self.path is None:
 			self.path = str(QFileDialog.getSaveFileName(self.window))
 
@@ -168,13 +244,17 @@ class Editor(QWidget):
 				os.rename(temp_path, self.path)
 			
 		self.textEdit.document().setModified(False)
+
+	def find(self):
+		cursor = self.textEdit.textCursor()
+		if cursor.hasSelection():
+			self.findBar.open(cursor.selectedText())
+		else:
+			self.findBar.open()
 		
 	def close(self):
 		self.window.close_tab(self)
 		
-	def setEventFilter(self, filter):
-		self.textEdit.installEventFilter(filter)	
-
 class MainWindow(QMainWindow):
 
 	# Emitted when the window is moved or resized
@@ -225,11 +305,6 @@ class MainWindow(QMainWindow):
 
 	def tabSwitched(self, index):
 		self.updateWindowTitle()
-
-		# Maintain global editor state, for restoring the session
-		state.current_tab_index = index
-		if len(state.open_files) == index:
-			state.open_files.append(None)
 
 	def new_tab(self, filename=None):
 		editor = Editor(self)
@@ -286,7 +361,6 @@ class MainWindow(QMainWindow):
 			filename = str(QFileDialog.getOpenFileName(self))
 		if len(filename) > 0:
 			self.new_tab(filename)
-			state.open_files[state.current_tab_index] = filename
 			
 	def open_files(self, files):
 		for file in files:
