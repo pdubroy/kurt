@@ -1,3 +1,5 @@
+__all__ = ["start_editor"]
+
 import inspect
 import os
 import shutil
@@ -19,7 +21,8 @@ class KeyFilter(QObject):
 			("Control", "S"): tab.save,
 			("Control", "W"): tab.close,
 			("Control", "R"): win.reloadAndRestart,
-			("Control", "F"): tab.find
+			("Control", "F"): tab.find,
+			("Control", "L"): tab.gotoLine
 		}
 		
 		# Map from our simplified shortcut representation to an internal one,
@@ -254,6 +257,13 @@ class Editor(QWidget):
 		
 	def close(self):
 		self.window.close_tab(self)
+
+	def gotoLine(self):
+		linecount = self.textEdit.document().lineCount()
+		line_num, ok = QInputDialog.getInt(self, "Go to Line", "Line number:", min=0, max=linecount)
+		if ok:
+			block = self.textEdit.document().findBlockByLineNumber(line_num)
+			self.textEdit.setTextCursor(QTextCursor(block))
 		
 class MainWindow(QMainWindow):
 
