@@ -1,6 +1,5 @@
 Features:
 - drag and drop files to create a new tab
-- syntax highlighting for Python
 - proper tab/shift-tab handling
 - hitting enter maintains indent of previous line
 

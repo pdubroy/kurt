@@ -1,9 +1,13 @@
 __all__ = ["start_editor"]
 
 import inspect
+import keyword
 import os
 import shutil
+import StringIO
 import sys
+import token
+import tokenize
 import traceback
 
 from PyQt4.QtCore import *
@@ -59,6 +63,54 @@ class KeyFilter(QObject):
 				handler()
 				return True
 		return QObject.eventFilter(self, obj, event)
+
+class PythonHighlighter(QSyntaxHighlighter):
+	def __init__(self, *args):
+		QSyntaxHighlighter.__init__(self, *args)
+
+		self.commentFmt = QTextCharFormat()
+		self.commentFmt.setForeground(QColor("#0065ff"))
+
+		self.keywordFmt = QTextCharFormat()
+		self.keywordFmt.setForeground(QColor("#215ee6"))
+
+		self.stringFmt = QTextCharFormat()
+		self.stringFmt.setForeground(QColor("#009900"))
+
+		self.identifierFmt = QTextCharFormat()
+		self.identifierFmt.setForeground(QColor("#ff8e4b"))
+
+		self.keywordFmt = QTextCharFormat()
+		self.keywordFmt.setForeground(QColor("#33bbff"))
+		self.keywordFmt.setProperty(QTextFormat.FontWeight, 600)
+
+	def highlightBlock(self, text):
+		stripped_line = str(text).lstrip()
+		if len(stripped_line) > 0 and stripped_line[0] == "#":
+			self.setFormat(0, len(text), self.commentFmt)
+		else:
+			f = StringIO.StringIO(str(text))
+			try:
+				awaiting_decl = False
+				for each in tokenize.generate_tokens(f.readline):
+					token_type, text, start, end, line = each
+					_, start_col = start
+					_, end_col = end
+					length  = end_col - start_col
+					name = token.tok_name[token_type]
+					if name == "STRING":
+						self.setFormat(start_col, length, self.stringFmt)
+					elif name == "NAME":
+						if text in keyword.kwlist:
+							self.setFormat(start_col, length, self.keywordFmt)
+							awaiting_decl = text in ["def", "class"]
+						else:
+							if awaiting_decl:
+								self.setFormat(start_col, length, self.identifierFmt)
+								awaiting_decl = False
+					prev_tok_name = name
+			except tokenize.TokenError:
+				pass
 
 class FindBar(QWidget):
 	def __init__(self, textEdit, *args):
@@ -180,6 +232,8 @@ class Editor(QWidget):
 		
 		self._save_timer = QTimer(self)		
 		self._save_timer.timeout.connect(self._saveTimeout)
+
+		self.titleChanged.connect(self.updateMode)
 		
 	def showEvent(self, event):
 		# Set the tab width to 4 chars (assuming monospace font)
@@ -265,7 +319,12 @@ class Editor(QWidget):
 			# Note: findBlockByLineNumber assumes a 0-based index
 			block = self.textEdit.document().findBlockByLineNumber(line_num - 1)
 			self.textEdit.setTextCursor(QTextCursor(block))
-		
+
+	def updateMode(self):
+		if self.path and self.path.endswith(".py"):
+			self.highlighter = PythonHighlighter(self.textEdit)
+			self.highlighter.rehighlight()
+
 class MainWindow(QMainWindow):
 
 	# Emitted when the window is moved or resized
