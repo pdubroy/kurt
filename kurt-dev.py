@@ -1,29 +1,24 @@
 import sys
 import traceback
 
-import kurt
-
-CRASH_FILENAME = "crash.txt"
-
 if __name__ == "__main__":
 	files = sys.argv[1:]
-	crash_count = 0
+	tabContents = []
 
-	while True:
+	restart = True
+	while restart:
 		try:
-			rc = kurt.start_editor(files)
+			import kurt
+			rc = kurt.start_editor(files, tabContents)
+			# A return code of zero indicates a clean, user-initiated exit
 			if rc == 0:
-				sys.exit(0)
+				restart = False
 		except Exception as e:
-			crash_count += 1
-			
-			# Once we hit 10 crashes, don't attempt to restart
-			if crash_count < 10:
-				# Save the traceback to a file, and open it in a new tab
-				with open(CRASH_FILENAME, "w") as f:
-					traceback.print_exc(file=f)
-				files = [CRASH_FILENAME]
-			else:
-				traceback.print_exc(file=sys.stderr)
-				sys.exit(1)
-		reload(kurt)
+			# When the editor is restarted, open a new tab with the traceback
+			tabContents = traceback.format_exc()
+		files = []
+		if "kurt" in sys.modules:
+			del(sys.modules["kurt"])
+		else:
+			sys.stderr.write(tabContents)
+			restart = False

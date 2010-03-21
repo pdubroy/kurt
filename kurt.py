@@ -1,6 +1,8 @@
+import inspect
 import os
 import shutil
 import sys
+import traceback
 
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
@@ -12,7 +14,7 @@ class KeyFilter(QObject):
 		("Control", "O"): lambda w, t: w.open_file(),
 		("Control", "S"): lambda w, t: t.save(),
 		("Control", "W"): lambda w, t: t.close(),
-		("Control", "R"): lambda w, t: w.close(),
+		("Control", "R"): lambda w, t: w.reloadAndRestart(),
 		("Control", "F"): lambda w, t: t.find()
 	}
 
@@ -291,9 +293,18 @@ class MainWindow(QMainWindow):
 	def closeEvent(self, event):
 		QMainWindow.closeEvent(self, event)
 		
-	def close(self):
+	def reloadAndRestart(self):
 		self.currentTab().save()
-		QApplication.exit(1)
+		filename = inspect.getfile(inspect.currentframe())
+		try:
+			execfile(filename, {"__name__": "kurt"})
+		except Exception as e:
+			# If there's an error in the script, don't restart; just open
+			# a new tab with the traceback
+			self.new_tab(contents=traceback.format_exc())
+		else:
+			# Exit, and the calling script will restart the editor
+			QApplication.exit(1)
 
 	def currentTab(self):
 		return self.tabWidget.currentWidget()
@@ -306,7 +317,11 @@ class MainWindow(QMainWindow):
 	def tabSwitched(self, index):
 		self.updateWindowTitle()
 
-	def new_tab(self, filename=None):
+	def new_tab(self, filename=None, contents=None):
+		"""Open a new editor tab. If filename is specified, it will be loaded
+		into the tab. Otherwise, if contents (a string) is specified, the
+		editor text will be set to that.
+		"""
 		editor = Editor(self)
 		editor.modificationChanged.connect(self.tabModificationChanged)
 		editor.titleChanged.connect(self.tabTitleChanged)
@@ -315,6 +330,8 @@ class MainWindow(QMainWindow):
 
 		if filename:
 			editor.open_file(filename)
+		elif contents:
+			editor.textEdit.setText(contents)
 		self.tabWidget.setCurrentIndex(index) # Switch to the new tab
 		self.contentsChanged.emit()
 		editor.setFocus()
@@ -361,10 +378,6 @@ class MainWindow(QMainWindow):
 			filename = str(QFileDialog.getOpenFileName(self))
 		if len(filename) > 0:
 			self.new_tab(filename)
-			
-	def open_files(self, files):
-		for file in files:
-			self.open_file(file)
 			
 	def getOpenFiles(self):
 		"""Return a list of the full paths of all the files open in the window."""
@@ -434,8 +447,8 @@ class SessionManager(QObject):
 	def restore_session(self):
 		self.restore_geometry()
 		self.restoreTabs()
-		
-def start_editor(files=None):
+
+def start_editor(files=[], contents=[]):
 	app = QApplication(sys.argv)
 	# Create the session manager as early as possible, so we can properly
 	# restore the state after a crash
@@ -446,7 +459,10 @@ def start_editor(files=None):
 		session_manager.restore_session()
 	else:
 		session_manager.restore_geometry()
-	win.open_files(files)
+	for each in files:
+		win.new_tab(filename=each)
+	for each in contents:
+		win.new_tab(contents=each)
 	win.show()
 	app.lastWindowClosed.connect(app.quit)
 	return app.exec_()
