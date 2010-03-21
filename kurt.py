@@ -262,7 +262,8 @@ class Editor(QWidget):
 		linecount = self.textEdit.document().lineCount()
 		line_num, ok = QInputDialog.getInt(self, "Go to Line", "Line number:", min=0, max=linecount)
 		if ok:
-			block = self.textEdit.document().findBlockByLineNumber(line_num)
+			# Note: findBlockByLineNumber assumes a 0-based index
+			block = self.textEdit.document().findBlockByLineNumber(line_num - 1)
 			self.textEdit.setTextCursor(QTextCursor(block))
 		
 class MainWindow(QMainWindow):
@@ -441,11 +442,12 @@ class SessionManager(QObject):
 				val = self.settings.value(key).toPyObject()
 				if val is not None:
 					self.win.open_file(str(val))
-				# When the tabs reach a high-water marks, some of the keys will
+				# When the tabs reach a high-water mark, some of the keys will
 				# become stale. Remove all the tab keys to prevent this.
 				self.settings.remove(key)
 		self.settings.endGroup()
 		self.restoring = False
+		self.saveTabs()
 		
 	def restore_geometry(self):
 		# Try to restore the previous settings

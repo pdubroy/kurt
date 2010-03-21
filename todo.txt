@@ -5,5 +5,4 @@ Features:
 - hitting enter maintains indent of previous line
 
 Bugs:
-- fix reloadAndRestart
 - unhandled exception when closing last tab
