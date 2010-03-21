@@ -9,24 +9,22 @@ from PyQt4.QtGui import *
 
 class KeyFilter(QObject):
 
-	SHORTCUTS = {
-		("Control", "T"): lambda w, t: w.new_tab(),
-		("Control", "O"): lambda w, t: w.open_file(),
-		("Control", "S"): lambda w, t: t.save(),
-		("Control", "W"): lambda w, t: t.close(),
-		("Control", "R"): lambda w, t: w.reloadAndRestart(),
-		("Control", "F"): lambda w, t: t.find()
-	}
-
-	def __init__(self, window, tab, *args):
+	def __init__(self, win, tab, *args):
 		QObject.__init__(self, *args)
-		self.window = window
-		self.tab = tab
 		self._handlers = {}
+
+		shortcuts = {
+			("Control", "T"): win.new_tab,
+			("Control", "O"): win.open_file,
+			("Control", "S"): tab.save,
+			("Control", "W"): tab.close,
+			("Control", "R"): win.reloadAndRestart,
+			("Control", "F"): tab.find
+		}
 		
 		# Map from our simplified shortcut representation to an internal one,
 		# which will make it easier to look up handlers for Qt events
-		for shortcut, handler in KeyFilter.SHORTCUTS.iteritems():
+		for shortcut, handler in shortcuts.iteritems():
 			modifiers = shortcut[0]
 			if not isinstance(modifiers, list):
 				modifiers = [modifiers]
@@ -55,7 +53,7 @@ class KeyFilter(QObject):
 		if event.type() == QEvent.KeyPress and event.key() < 256:
 			handler = self.get_handler(event.key(), event.modifiers())
 			if handler:
-				handler(self.window, self.tab)
+				handler()
 				return True
 		return QObject.eventFilter(self, obj, event)
 
