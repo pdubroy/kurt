@@ -26,6 +26,33 @@ import traceback
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
+def pyqt_guarded(f):
+	"""A decorator to prevent unhandled exceptions to be thrown outside of
+	Python code. Should be used for any methods that are called directly
+	from PyQt."""
+	def wrapper(*args):
+		try:
+			return f(*args)
+		except Exception as e:
+			sys.stderr.write("Unhandled exception in wrapper around %s\n" % f)
+			traceback.print_exc()
+	return wrapper
+
+# A decorator to be used for Python methods which override a Qt method.
+pyqt_override = pyqt_guarded
+
+def safe_connect(signal, slot):
+	"""Connects a PyQt signal to a slot (a Python callable), while ensuring
+	that no unhandled exceptions are raised in the slot.
+	"""
+	signal.connect(pyqt_guarded(slot))
+	
+def signal_connect(signal1, signal2):
+	"""Connects two PyQt signals together. Not necessary, but here to provide
+	symmetry with safe_connect().
+	"""
+	signal1.connect(signal2)
+
 class KeyFilter(QObject):
 
 	def __init__(self, win, tab, *args):
@@ -36,7 +63,7 @@ class KeyFilter(QObject):
 			("Control", "T"): win.new_tab,
 			("Control", "O"): win.open_file,
 			("Control", "S"): tab.save,
-			("Control", "W"): tab.close,
+			("Control", "W"): tab.closeTab,
 			("Control", "R"): win.reloadAndRestart,
 			("Control", "F"): tab.find,
 			("Control", "L"): tab.gotoLine
@@ -68,7 +95,8 @@ class KeyFilter(QObject):
 			if modifiers == modifier:
 				return handler
 		return None
-			
+
+	@pyqt_override
 	def eventFilter(self, obj, event):
 		if event.type() == QEvent.KeyPress and event.key() < 256:
 			handler = self.get_handler(event.key(), event.modifiers())
@@ -97,6 +125,7 @@ class PythonHighlighter(QSyntaxHighlighter):
 		self.keywordFmt.setForeground(QColor("#33bbff"))
 		self.keywordFmt.setProperty(QTextFormat.FontWeight, 600)
 
+	@pyqt_override
 	def highlightBlock(self, text):
 		stripped_line = str(text).lstrip()
 		if len(stripped_line) > 0 and stripped_line[0] == "#":
@@ -139,12 +168,14 @@ class FindBar(QWidget):
 		layout.addWidget(self.lineEdit)
 		
 		self.lineEdit.installEventFilter(self)
-		self.lineEdit.textEdited.connect(self._findText)
+		safe_connect(self.lineEdit.textEdited, self._findText)
 		self.setFocusProxy(self.lineEdit)
-		
+	
+	@pyqt_override
 	def showEvent(self, event):
 		self.lineEdit.selectAll()
-		
+	
+	@pyqt_override
 	def eventFilter(self, obj, event):
 		if (event.type() == QEvent.KeyPress
 		and event.modifiers() == Qt.NoModifier):
@@ -220,8 +251,8 @@ class Editor(QWidget):
 
 		self.textEdit = QTextEdit()
 		doc = self.textEdit.document()
-		doc.modificationChanged.connect(self.modificationChanged)
-		doc.contentsChanged.connect(self._contentsChanged)
+		signal_connect(doc.modificationChanged, self.modificationChanged)
+		safe_connect(doc.contentsChanged, self._contentsChanged)
 
 		# Config options
 		self.textEdit.setStyleSheet("""
@@ -244,10 +275,11 @@ class Editor(QWidget):
 		self.textEdit.installEventFilter(self.keyFilter)
 		
 		self._save_timer = QTimer(self)		
-		self._save_timer.timeout.connect(self._saveTimeout)
+		safe_connect(self._save_timer.timeout, self._saveTimeout)
 
-		self.titleChanged.connect(self.updateMode)
-		
+		safe_connect(self.titleChanged, self.updateMode)
+	
+	@pyqt_override
 	def showEvent(self, event):
 		# Set the tab width to 4 chars (assuming monospace font)
 		# If we do this in the constructor, it's not calculated correctly
@@ -321,8 +353,8 @@ class Editor(QWidget):
 			self.findBar.open(cursor.selectedText())
 		else:
 			self.findBar.open()
-		
-	def close(self):
+
+	def closeTab(self):
 		self.window.close_tab(self)
 
 	def gotoLine(self):
@@ -333,7 +365,7 @@ class Editor(QWidget):
 			block = self.textEdit.document().findBlockByLineNumber(line_num - 1)
 			self.textEdit.setTextCursor(QTextCursor(block))
 
-	def updateMode(self):
+	def updateMode(self, title):
 		if self.path and self.path.endswith(".py"):
 			self.highlighter = PythonHighlighter(self.textEdit)
 			self.highlighter.rehighlight()
@@ -347,7 +379,7 @@ class MainWindow(QMainWindow):
 	contentsChanged = pyqtSignal()
 	
 	# Emitted when the window is closed (by user action)
-	windowClosed = pyqtSignal()
+	windowClosed = pyqtSignal(bool)
 
 	def __init__(self, *args):
 		QMainWindow.__init__(self, *args)
@@ -355,24 +387,31 @@ class MainWindow(QMainWindow):
 		self.tabWidget.setMovable(True)
 		self.setCentralWidget(self.tabWidget)
 		
-		self.tabWidget.currentChanged.connect(self.tabSwitched)
+		safe_connect(self.tabWidget.currentChanged, self.tabSwitched)
 		
+		self.closed_cleanly = True
+
+	@pyqt_override	
 	def showEvent(self, event):
 		# If no tabs exist yet, create a default one
 		if self.tabWidget.count() == 0:
 			self.new_tab()
 		QMainWindow.showEvent(self, event)
-			
+	
+	@pyqt_override
 	def moveEvent(self, event):
 		self.geometryChanged.emit()
 		QMainWindow.moveEvent(self, event)
-		
+	
+	@pyqt_override
 	def resizeEvent(self, event):
 		self.geometryChanged.emit()
 		QMainWindow.resizeEvent(self, event)
 
+	@pyqt_override
 	def closeEvent(self, event):
-		QMainWindow.closeEvent(self, event)
+		self.windowClosed.emit(self.closed_cleanly)
+		event.accept()
 		
 	def reloadAndRestart(self):
 		self.currentTab().save()
@@ -385,7 +424,8 @@ class MainWindow(QMainWindow):
 			self.new_tab(contents=traceback.format_exc())
 		else:
 			# Exit, and the calling script will restart the editor
-			QApplication.exit(1)
+			self.closed_cleanly = False
+			self.close()
 
 	def currentTab(self):
 		return self.tabWidget.currentWidget()
@@ -404,8 +444,8 @@ class MainWindow(QMainWindow):
 		editor text will be set to that.
 		"""
 		editor = Editor(self)
-		editor.modificationChanged.connect(self.tabModificationChanged)
-		editor.titleChanged.connect(self.tabTitleChanged)
+		safe_connect(editor.modificationChanged, self.tabModificationChanged)
+		safe_connect(editor.titleChanged, self.tabTitleChanged)
 
 		index = self.tabWidget.addTab(editor, editor.getTitle())
 
@@ -486,9 +526,9 @@ class SessionManager(QObject):
 		self.settings.setValue("session/closed-cleanly", False)
 	
 	def set_window(self, win):
-		win.geometryChanged.connect(self.geometryChanged)
-		win.contentsChanged.connect(self.saveTabs)
-		win.windowClosed.connect(self.windowClosed)
+		safe_connect(win.geometryChanged, self.geometryChanged)
+		safe_connect(win.contentsChanged, self.saveTabs)
+		safe_connect(win.windowClosed, self.windowClosed)
 		self.win = win
 		
 	def geometryChanged(self):
@@ -502,8 +542,9 @@ class SessionManager(QObject):
 			for i, filename in enumerate(self.win.getOpenFiles()):
 				self.settings.setValue("session/tab%d" % i, filename)
 			
-	def windowClosed(self):
-		self.settings.setValue("session/closed-cleanly", True)
+	def windowClosed(self, closed_cleanly):
+		self.closed_cleanly = closed_cleanly
+		self.settings.setValue("session/closed-cleanly", closed_cleanly)
 			
 	def restoreTabs(self):
 		self.restoring = True
@@ -529,25 +570,30 @@ class SessionManager(QObject):
 	def restore_session(self):
 		self.restore_geometry()
 		self.restoreTabs()
+		
+	def shutDown(self):
+		app = self.sender()
+		rc = 0 if self.closed_cleanly else 1
+		app.exit(rc)
 
 def start_editor(files=[], contents=[]):
-	app = QApplication(sys.argv)
-	# Create the session manager as early as possible, so we can properly
-	# restore the state after a crash
-	session_manager = SessionManager()
-	win = MainWindow()
-	session_manager.set_window(win)
-	if not session_manager.closed_cleanly or len(files) == 0:
-		session_manager.restore_session()
-	else:
-		session_manager.restore_geometry()
-	for each in files:
-		win.new_tab(filename=each)
-	for each in contents:
-		win.new_tab(contents=each)
-	win.show()
-	app.lastWindowClosed.connect(app.quit)
-	return app.exec_()
+		app = QApplication(sys.argv)
+		# Create the session manager as early as possible, so we can properly
+		# restore the state after a crash
+		session_manager = SessionManager()
+		win = MainWindow()
+		session_manager.set_window(win)
+		if not session_manager.closed_cleanly or len(files) == 0:
+			session_manager.restore_session()
+		else:
+			session_manager.restore_geometry()
+		for each in files:
+			win.new_tab(filename=each)
+		for each in contents:
+			win.new_tab(contents=each)
+		win.show()
+		safe_connect(app.lastWindowClosed, session_manager.shutDown)
+		return app.exec_()
 
 if __name__== "__main__":
 	start_editor(sys.argv[1:])
