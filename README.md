@@ -10,12 +10,12 @@ To run kurt, just run the file kurt.py in the python interpreter. For self-hosti
 
 ## Keyboard Shortcuts
 
-Ctrl-T: Open a new tab
-Ctrl-W: Close the current tab
-Ctrl-O: Open a file in a new tab
-Ctrl-S: Save the current file (unnecessary, since kurt autosaves)
-Ctrl-F: Incremental search
-Ctrl-R: Restart the editor and reload the script from the file system (useful for self-hosting)
+- Ctrl-T: Open a new tab
+- Ctrl-W: Close the current tab
+- Ctrl-O: Open a file in a new tab
+- Ctrl-S: Save the current file (unnecessary, since kurt autosaves)
+- Ctrl-F: Incremental search
+- Ctrl-R: Restart the editor and reload the script from the file system (useful for self-hosting)
 
 ## License
 
