@@ -305,10 +305,12 @@ class Editor(QWidget):
 		return self.textEdit.document().isModified()
 		
 	def open_file(self, path):
+		"""Open the file indicated by 'path' into this editor. 'path' may be
+		an absolute path, or relative to the current working directory."""
 		if os.path.exists(path):
 			self.textEdit.setPlainText(open(path, "r").read())
 			self.textEdit.document().setModified(False)
-		self.path = path
+		self.path = os.path.abspath(path) # Always save as absolute
 		self.titleChanged.emit(self.getTitle())
 
 	def save(self):
@@ -535,32 +537,23 @@ class SessionManager(QObject):
 		"""Saves the width, height, and position of the window."""
 		if not self.restoring:
 			self.settings.setValue("session/geometry", self.win.saveGeometry())
-
-	def saveTabs(self):
-		"""Saves a list of all the files that are currently open in tabs."""
-		if not self.restoring:
-			for i, filename in enumerate(self.win.getOpenFiles()):
-				self.settings.setValue("session/tab%d" % i, filename)
 			
 	def windowClosed(self, closed_cleanly):
 		self.closed_cleanly = closed_cleanly
 		self.settings.setValue("session/closed-cleanly", closed_cleanly)
 			
+	def saveTabs(self):
+		"""Saves a list of all the files that are currently open in tabs."""
+		if not self.restoring:
+			paths = os.pathsep.join((x for x in self.win.getOpenFiles() if x is not None))
+			self.settings.setValue("session/tabs", paths)
+
 	def restoreTabs(self):
 		self.restoring = True
-		self.settings.beginGroup("session")
-		for key in self.settings.childKeys():
-			if str(key).startswith("tab"):
-				# The value returned is a QVariant, which requires some massaging
-				val = self.settings.value(key).toPyObject()
-				if val is not None:
-					self.win.open_file(str(val))
-				# When the tabs reach a high-water mark, some of the keys will
-				# become stale. Remove all the tab keys to prevent this.
-				self.settings.remove(key)
-		self.settings.endGroup()
+		paths = str(self.settings.value("session/tabs").toPyObject())
+		for path in paths.split(os.pathsep):
+			self.win.open_file(path)
 		self.restoring = False
-		self.saveTabs()
 		
 	def restore_geometry(self):
 		# Try to restore the previous settings
