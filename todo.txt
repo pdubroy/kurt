@@ -5,3 +5,6 @@ Features:
 
 Bugs:
 - unhandled exception when closing last tab
+
+Misc:
+- test automatic pushing to Google Code
