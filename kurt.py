@@ -98,12 +98,18 @@ class KeyFilter(QObject):
 
 	@pyqt_override
 	def eventFilter(self, obj, event):
-		if event.type() == QEvent.KeyPress and event.key() < 256:
+		# Ignore everything but keypresses
+		if event.type() != QEvent.KeyPress:
+			return False
+
+		# Filter on the regular keys (ASCII key codes)
+		if event.key() < 256:
 			handler = self.get_handler(event.key(), event.modifiers())
 			if handler:
 				handler()
-				return True
-		return QObject.eventFilter(self, obj, event)
+				return True # Swallow the event
+
+		return False
 
 class PythonHighlighter(QSyntaxHighlighter):
 	def __init__(self, *args):
@@ -229,7 +235,46 @@ class FindBar(QWidget):
 		self._setBackground(found=True)
 		self.show()
 		self.setFocus()
+
+class KTextEdit(QTextEdit):
+
+	def _unindentAt(self, cursor):
+		# Helper for un-indenting a line.
+		# TODO: Make this function smarter than just deleting leading tab
+		if self.document().characterAt(cursor.position()) == QChar("\t"):
+			cursor.deleteChar()
+
+	@pyqt_override
+	def keyPressEvent(self, event):
+		# Handle tabs specially: if there's a selection spanning multiple 
+		# lines, hitting tab indents all the spanned lines.
+
+		indent = event.key() == Qt.Key_Tab and event.modifiers() == Qt.NoModifier
+		unindent = event.key() == Qt.Key_Backtab and event.modifiers() == Qt.ShiftModifier
+
+		if indent or unindent:
+			cursor = self.textCursor()
+			# Don't use cursor.selectedText(), it uses \u2029 instead of \n
+			if cursor.selection().toPlainText().contains("\n"):
+				# Append a tab at the beginning of every line in the selection,
+				# except the last line if the cursor is at position 0.
+				ins_cursor = QTextCursor(cursor)
+				ins_cursor.beginEditBlock()
+				ins_cursor.setPosition(cursor.selectionStart())
+				ins_cursor.movePosition(QTextCursor.StartOfLine)
+				while ins_cursor.position() < cursor.position():
+					if indent:
+						ins_cursor.insertText("\t")
+					else:
+						self._unindentAt(ins_cursor)
+					# Move to the beginning of the next line
+					ins_cursor.movePosition(QTextCursor.NextBlock)
+				ins_cursor.endEditBlock()
+				return # Swallow the event
 			
+		QTextEdit.keyPressEvent(self, event)
+		
+
 class Editor(QWidget):
 
 	# Emitted when the title of the tab has changed
@@ -249,12 +294,12 @@ class Editor(QWidget):
 		layout.setSpacing(0)
 		self.setLayout(layout)
 
-		self.textEdit = QTextEdit()
+		self.textEdit = KTextEdit()
 		doc = self.textEdit.document()
 		signal_connect(doc.modificationChanged, self.modificationChanged)
 		safe_connect(doc.contentsChanged, self._contentsChanged)
 
-		# Config options
+		# Style - should be a config option
 		self.textEdit.setStyleSheet("""
 			QTextEdit {
 				color: #eeeeee;
@@ -278,7 +323,7 @@ class Editor(QWidget):
 		safe_connect(self._save_timer.timeout, self._saveTimeout)
 
 		safe_connect(self.titleChanged, self.updateMode)
-	
+
 	@pyqt_override
 	def showEvent(self, event):
 		# Set the tab width to 4 chars (assuming monospace font)
