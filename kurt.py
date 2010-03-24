@@ -481,6 +481,29 @@ class MainWindow(QMainWindow):
 	def closeEvent(self, event):
 		self.windowClosed.emit(self.closed_cleanly)
 		event.accept()
+	
+	@pyqt_override
+	def dragEnterEvent(self, event):
+		# Only accept the drag and drop if it's files
+		# The TextEdit widget will accept drops of text itself
+		mimeData = event.mimeData()
+		if mimeData.hasUrls():
+			for url in mimeData.urls():
+				if url.scheme() != "file":
+					return
+		event.acceptProposedAction()
+
+	@pyqt_override
+	def dragMoveEvent(self, event):
+		event.acceptProposedAction()
+
+	@pyqt_override
+	def dropEvent(self, event):
+		# We can assume once we get here it's only file: URLs
+		for url in event.mimeData().urls():
+			# TODO: Do we need to check that the file exists?
+			self.new_tab(url.toLocalFile())
+		event.acceptProposedAction()
 		
 	def reloadAndRestart(self):
 		self.currentTab().save()
