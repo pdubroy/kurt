@@ -523,12 +523,14 @@ class MainWindow(QMainWindow):
 		return self.tabWidget.currentWidget()
 		
 	def updateWindowTitle(self):
-		path = self.tabWidget.currentWidget().path
-		filename = os.path.basename(path) if path else "New File"
+		editor = self.tabWidget.currentWidget()
+		filename = os.path.basename(editor.path) if editor.path else "New File"
 		self.setWindowTitle(filename + " - Kurt")
 
 	def tabSwitched(self, index):
-		self.updateWindowTitle()
+		# Handle the case when the last tab is closed
+		if index >= 0:
+			self.updateWindowTitle()
 
 	def new_tab(self, filename=None, contents=None):
 		"""Open a new editor tab. If filename is specified, it will be loaded
