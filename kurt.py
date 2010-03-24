@@ -53,6 +53,15 @@ def signal_connect(signal1, signal2):
 	"""
 	signal1.connect(signal2)
 
+def keyEventMatches(event, key, modifier="No"):
+	"""Helper for hanlding Qt key events. 'key' is a string representing
+	the key to look for, and 'modifier' is one of "Shift", "Control", etc.
+	"""
+	qt_key = getattr(Qt, "Key_" + key)
+	if event.key() != qt_key:
+		return False
+	return event.modifiers() == getattr(Qt, modifier + "Modifier")
+
 class KeyFilter(QObject):
 
 	def __init__(self, win, tab, *args):
@@ -249,8 +258,11 @@ class KTextEdit(QTextEdit):
 		# Handle tabs specially: if there's a selection spanning multiple 
 		# lines, hitting tab indents all the spanned lines.
 
-		indent = event.key() == Qt.Key_Tab and event.modifiers() == Qt.NoModifier
-		unindent = event.key() == Qt.Key_Backtab and event.modifiers() == Qt.ShiftModifier
+		indent = keyEventMatches(event, "Tab")
+		unindent = keyEventMatches(event, "Backtab", "Shift")
+
+		# TODO: Both of these handlers should be smarter, and detect/insert
+		# a logical tab (e.g. 4 spaces) rather than looking for \t
 
 		if indent or unindent:
 			cursor = self.textCursor()
@@ -271,9 +283,19 @@ class KTextEdit(QTextEdit):
 					ins_cursor.movePosition(QTextCursor.NextBlock)
 				ins_cursor.endEditBlock()
 				return # Swallow the event
+		elif keyEventMatches(event, "Return"):
+			# Check the indentation level of the current line
+			cursor = self.textCursor()
+			cursor.movePosition(QTextCursor.StartOfLine)
+			while self.document().characterAt(cursor.position()) == QChar("\t"):
+				cursor.movePosition(QTextCursor.Right)
+			indent_level = cursor.columnNumber()
+
+			# Insert a line break and match the indentation level
+			self.textCursor().insertText("\n" + indent_level * "\t")
+			return
 			
 		QTextEdit.keyPressEvent(self, event)
-		
 
 class Editor(QWidget):
 
