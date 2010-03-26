@@ -312,7 +312,7 @@ class Editor(QWidget):
 		self.path = None # Path to the file that is open in this tab
 		
 		layout = QVBoxLayout()
-		layout.setContentsMargins(0, 2, 0, 0)
+		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(0)
 		self.setLayout(layout)
 
@@ -326,10 +326,21 @@ class Editor(QWidget):
 			QTextEdit {
 				color: #eeeeee;
 				background-color: #303030;
-				font-family: Consolas, Courier, monospace;
-				font-size: 10pt;
+				border: 0;
 			}
 		""")
+
+		fonts = [
+			("Menlo", 12),
+			("Monaco",  12),
+			("Consolas", 10),
+			("Courier New", 12)
+		]
+		for name, size in fonts:
+			font = QFont(name, size, QFont.Normal)
+			if font.exactMatch():
+				self.textEdit.setCurrentFont(font)
+				break
 		
 		self.findBar = FindBar(self.textEdit)
 		self.findBar.hide()
@@ -454,6 +465,7 @@ class MainWindow(QMainWindow):
 		QMainWindow.__init__(self, *args)
 		self.tabWidget = QTabWidget()
 		self.tabWidget.setMovable(True)
+		self.tabWidget.setDocumentMode(True)
 		self.setCentralWidget(self.tabWidget)
 		
 		safe_connect(self.tabWidget.currentChanged, self.tabSwitched)
