@@ -11,6 +11,8 @@
 # FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
 # more details.
 
+from __future__ import with_statement
+
 __all__ = ["start_editor"]
 
 import inspect
@@ -33,7 +35,7 @@ def pyqt_guarded(f):
 	def wrapper(*args):
 		try:
 			return f(*args)
-		except Exception as e:
+		except Exception, e:
 			sys.stderr.write("Unhandled exception in wrapper around %s\n" % f)
 			traceback.print_exc()
 	return wrapper
@@ -522,7 +524,7 @@ class MainWindow(QMainWindow):
 		filename = inspect.getfile(inspect.currentframe())
 		try:
 			execfile(filename, {"__name__": "kurt"})
-		except Exception as e:
+		except Exception, e:
 			# If there's an error in the script, don't restart; just open
 			# a new tab with the traceback
 			self.new_tab(contents=traceback.format_exc())
