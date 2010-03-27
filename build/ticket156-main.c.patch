@@ -1,0 +1,17 @@
+--- main.c.orig	2010-02-28 21:51:29.000000000 +0800
++++ main.c	2010-02-28 15:55:41.000000000 +0800
+@@ -138,12 +138,14 @@
+         pid = fork();
+         if (pid == 0)
+             execvp(thisfile, argv);
++        /*
+         wait(&rc);
+         rc = WEXITSTATUS(rc);
+ 
+         VS("Back to parent...\n");
+         if (strcmp(workpath, homepath) != 0)
+             clear(workpath);
++		*/
+     }
+     return rc;
+ }
