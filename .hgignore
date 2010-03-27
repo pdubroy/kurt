@@ -1,1 +1,10 @@
 .*\.pyc$
+build/pyinstaller-svn-r812/bincache00/.*
+build/MacOS/build/.*
+build/MacOS/dist/.*
+build/pyinstaller-svn-r812/source/linux/Makefile
+build/pyinstaller-svn-r812/source/linux/.*\.o
+build/MacOS/warnkurt.txt
+build/.*\.log
+build/pyinstaller-svn-r812/config.dat
+build/pyinstaller-svn-r812/support/loader/run.*

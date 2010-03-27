@@ -1,0 +1,12 @@
+--- Kurt.app/Contents/Info.plist.orig	2010-03-27 18:30:47.000000000 -0400
++++ Kurt.app/Contents/Info.plist	2010-03-27 18:31:50.000000000 -0400
+@@ -16,6 +16,6 @@
+ <key>CFBundlePackageType</key>
+ <string>APPL</string>
+ <key>LSBackgroundOnly</key>
+-<string>1</string>
++<false/>
+ </dict>
+-</plist>
+\ No newline at end of file
++</plist>
