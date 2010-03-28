@@ -1,6 +1,6 @@
 # -*- mode: python -*-
-a = Analysis([os.path.join(HOMEPATH,'support/_mountzlib.py'), os.path.join(HOMEPATH,'support/useUnicode.py'), '../src/kurt.py'],
-             pathex=['/Users/pdubroy/dev/kurt/build'])
+a = Analysis([os.path.join(HOMEPATH,'support/_mountzlib.py'), os.path.join(HOMEPATH,'support/useUnicode.py'), '../../../src/kurt.py'],
+             pathex=['/Users/pdubroy/dev/kurt/build/MacOS/PyInstaller'])
 pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
