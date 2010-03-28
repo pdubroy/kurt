@@ -15,13 +15,13 @@ python <pyinstaller_dir>/Configure.py
 
 -- Generating the spec file (if necessary)
 
-python <pyinstaller_dir>/Makespec.py --out=MacOS ../src/kurt.py
-patch MacOS/kurt.spec < kurt.spec.patch
+python <pyinstaller_dir>/Makespec.py --out=Kurt ../src/kurt.py
+patch Kurt/kurt.spec < kurt.spec.patch
 
 -- Building:
 
-python <pyinstaller_dir>/Build.py MacOS/kurt.spec
+python <pyinstaller_dir>/Build.py Kurt/kurt.spec
 patch Kurt.app/Contents/Info.plist < Info.plist.patch
-cp -r MacOS/dist/kurt/* Kurt.app/Contents/MacOS
+cp -r Kurt/dist/kurt/* Kurt.app/Contents/MacOS
 rm Kurt.app/Contents/MacOS/QtWebKit
 cp -r /opt/local/Library/Frameworks/QtGui.framework/Versions/Current/Resources/qt_menu.nib Kurt.app/Contents/Resources/
