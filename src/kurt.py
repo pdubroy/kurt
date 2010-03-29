@@ -1,4 +1,4 @@
-#! /usr/bin/env python2.6
+#! /usr/bin/env python2.5
 
 # Copyright (c) 2010 Patrick Dubroy <pdubroy@gmail.com>
 #
@@ -27,6 +27,8 @@ import traceback
 
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
+
+MAC_OS = sys.platform.startswith("darwin")
 
 def pyqt_guarded(f):
 	"""A decorator to prevent unhandled exceptions to be thrown outside of
@@ -691,6 +693,8 @@ def start_editor(files=[], contents=[]):
 		for each in contents:
 			win.new_tab(contents=each)
 		win.show()
+		if MAC_OS:
+			win.raise_()
 		safe_connect(app.lastWindowClosed, session_manager.shutDown)
 		return app.exec_()
 
