@@ -2,8 +2,6 @@
 build/pyinstaller-svn-r812/bincache00/.*
 build/MacOS/PyInstaller/Kurt/build/.*
 build/MacOS/PyInstaller/Kurt/dist/.*
-build/MacOS/PyInstaller/pyinstaller-svn-r812/source/linux/Makefile
-build/MacOS/PyInstaller/pyinstaller-svn-r812/source/linux/.*\.o
 build/MacOS/PyInstaller/pyinstaller-svn-r812/bincache00/.*
 build/MacOS/PyInstaller/Kurt/warnkurt.txt
 build/.*\.log

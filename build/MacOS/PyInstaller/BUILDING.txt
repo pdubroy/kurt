@@ -1,11 +1,46 @@
-Instructions for building Kurt for distribution:
+How to build Kurt for distribution.
 
-Mac OS X
---------
+Dependencies:
+- Python (2.6.5)
+- Qt (4.6.2)
+- sip & PyQt (4.7.2) from riverbankcomputing.co.uk
+- the PyInstaller stub executable (from SVN)
+
+Since Kurt itself contains no native code, the type of binary produced (i.e. 
+i386, ppc, x86_64, minimum version of OS X) is only based on what kind of
+binaries the dependencies are.
+
+Currently, Kurt is a fat i386/ppc binary compatible with OS X >= 10.5. Here's
+how those dependencies were built:
+
+Python
+------
+Installed i386/ppc .dmg from python.org
+
+Qt
+--
+(Using qt-everywhere-opensource-src-4.6.2)
+./configure -cocoa -no-qt3support -no-scripttools -no-phonon -no-dbus -no-phonon-backend -no-webkit -platform macx-g++ -arch ppc -arch x86 -sdk /Developer/SDKS/MacOSX10.5.sdk -qt-libtiff -qt-libpng -qt-libmng -qt-libjpeg -fast -release -opensource
+make
+make install
+
+sip
+---
+python configure.py -n
+make && make install
+
+PyQt4
+-----
+python configure.py -q /usr/local/Trolltech/Qt-4.6.2/bin/qmake
+make && make install
+
+=== BUILDING KURT ===
 
 (Taken from http://diotavelli.net/PyQtWiki/PyInstallerOnMacOSX)
 
 -- One-time setup (per-machine):
+
+(Note: As with the other dependencies, this should be done on Leopard)
 
 cd <pyinstaller_dir>/source/linux
 python ./Make.py
