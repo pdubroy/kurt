@@ -123,6 +123,25 @@ class KeyFilter(QObject):
 				return True # Swallow the event
 
 		return False
+		
+class ImageButton(QPushButton):
+	def __init__(self, name, width, height):
+		QPushButton.__init__(self)
+		self.setStyleSheet("""
+			QPushButton {
+				background-image: url(/Users/pdubroy/dev/kurt/src/graphics/%s.png) no-repeat;
+				background-repeat: no repeat;
+				background-position: center;
+				min-width: %dpx;
+				min-height: %dpx;
+				border: 0;
+			}
+			QPushButton:pressed {
+				background-image: url(/Users/pdubroy/dev/kurt/src/graphics/%s_pressed.png);
+			}
+		""" % (name, width, height, name))
+		self.setFlat(True)
+		self.setFixedSize(width, height)
 
 class PythonHighlighter(QSyntaxHighlighter):
 	def __init__(self, *args):
@@ -173,33 +192,43 @@ class PythonHighlighter(QSyntaxHighlighter):
 			except tokenize.TokenError:
 				pass
 
-class FindBar(QWidget):
+class FindBar(QFrame):
 	def __init__(self, textEdit, *args):
-		QWidget.__init__(self, *args)
+		QFrame.__init__(self, *args)
+		self.setFrameStyle(QFrame.Box | QFrame.Plain)
+		self.setObjectName("findBar") # For styling purposes
 		self.textEdit = textEdit
 		layout = QHBoxLayout()
-		layout.setContentsMargins(4, 2, 4, 4)
+		layout.setContentsMargins(4, 4, 4, 4)
+		layout.setSpacing(2)
 		self.setLayout(layout)
 		
-		layout.addWidget(QLabel(text="Find:"))
+		label = QLabel(text="Find:")
+		layout.addWidget(label)
 
 		self.lineEdit = QLineEdit()
 		layout.addWidget(self.lineEdit)
 		
+		closeButton = ImageButton("close", 16, 16)
+		safe_connect(closeButton.clicked, self.closeButtonClicked)
+		layout.addWidget(closeButton)
+		
 		self.lineEdit.installEventFilter(self)
 		safe_connect(self.lineEdit.textEdited, self._findText)
 		self.setFocusProxy(self.lineEdit)
-	
-	@pyqt_override
-	def showEvent(self, event):
-		self.lineEdit.selectAll()
+		
+		self.setStyleSheet("""
+			QFrame#findBar { border: 0; border-bottom: 1px solid #737373; }
+			QLabel { font-size: 10pt; padding-top: 2px; }
+			QLineEdit { font-size: 10pt; border: 1px solid DarkGray; }
+		""")
 	
 	@pyqt_override
 	def eventFilter(self, obj, event):
 		if (event.type() == QEvent.KeyPress
 		and event.modifiers() == Qt.NoModifier):
 			key = event.key()
-			if key == Qt.Key_Escape:
+			if key == Qt.Key_Return:
 				self._clearSelection()
 				self.hide()
 				return True
@@ -212,6 +241,24 @@ class FindBar(QWidget):
 				self._findText(self.lineEdit.text(), False, False)
 				return True
 		return QObject.eventFilter(self, obj, event)
+
+	@pyqt_override
+	def showEvent(self, event):
+		self._setBackground(found=True)
+
+		# Adjust the scrollbar in order to keep the text itself stationary
+		scrollBar = self.textEdit.verticalScrollBar()
+		scrollBar.setValue(scrollBar.value() + self.height())		
+
+		self.setFocus()
+		self.lineEdit.selectAll()
+		
+	@pyqt_override
+	def hideEvent(self, vent):
+		# Adjust the scrollbar in order to keep the text itself stationary
+		# TODO: Figure out how to make this work without flickering
+		scrollBar = self.textEdit.verticalScrollBar()
+		scrollBar.setValue(scrollBar.value() - self.height())		
 		
 	def _clearSelection(self):
 		cursor = self.textEdit.textCursor()
@@ -240,14 +287,15 @@ class FindBar(QWidget):
 			if not cursor.isNull():
 				self.textEdit.setTextCursor(cursor)
 			self._setBackground(found=not cursor.isNull())
-
+			
 	def open(self, text=None):
 		"""Basically just a synonym for show(), but allows the text to be set."""
 		if text:
 			self.lineEdit.setText(text)
-		self._setBackground(found=True)
 		self.show()
-		self.setFocus()
+		
+	def closeButtonClicked(self, checked):
+		self.hide()
 
 class KTextEdit(QTextEdit):
 
@@ -321,6 +369,8 @@ class Editor(QWidget):
 		self.setLayout(layout)
 
 		self.textEdit = KTextEdit()
+		self.textEdit.setAcceptRichText(False)
+		self.textEdit.setCursorWidth(1)
 		doc = self.textEdit.document()
 		signal_connect(doc.modificationChanged, self.modificationChanged)
 		safe_connect(doc.contentsChanged, self._contentsChanged)
@@ -699,4 +749,11 @@ def start_editor(files=[], contents=[]):
 		return app.exec_()
 
 if __name__== "__main__":
-	start_editor(sys.argv[1:])
+	file_args = sys.argv[1:]
+
+	# On Mac OS, there is an extra arg with the process serial number
+	# when we are launched from Finder. Just ignore it.
+	if MAC_OS and len(sys.argv) > 1 and sys.argv[1].startswith("-psn_"):
+		file_args.pop(0)
+
+	start_editor(file_args)
