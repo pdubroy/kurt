@@ -228,8 +228,8 @@ class FindBar(QFrame):
 		if (event.type() == QEvent.KeyPress
 		and event.modifiers() == Qt.NoModifier):
 			key = event.key()
-			if key == Qt.Key_Return:
-				self._clearSelection()
+			if key == Qt.Key_Escape:
+#				self._clearSelection()
 				self.hide()
 				return True
 			elif key == Qt.Key_Return or key == Qt.Key_Down:
