@@ -30,6 +30,10 @@ from PyQt4.QtGui import *
 
 MAC_OS = sys.platform.startswith("darwin")
 
+def abs_path(relpath):
+	"""Given a path relative to this script, return the absolute path."""
+	return os.path.join(os.path.dirname(__file__), relpath)
+
 def pyqt_guarded(f):
 	"""A decorator to prevent unhandled exceptions to be thrown outside of
 	Python code. Should be used for any methods that are called directly
@@ -129,7 +133,7 @@ class ImageButton(QPushButton):
 		QPushButton.__init__(self)
 		self.setStyleSheet("""
 			QPushButton {
-				background-image: url(/Users/pdubroy/dev/kurt/src/graphics/%s.png) no-repeat;
+				background-image: url(%s) no-repeat;
 				background-repeat: no repeat;
 				background-position: center;
 				min-width: %dpx;
@@ -137,9 +141,9 @@ class ImageButton(QPushButton):
 				border: 0;
 			}
 			QPushButton:pressed {
-				background-image: url(/Users/pdubroy/dev/kurt/src/graphics/%s_pressed.png);
+				background-image: url(%s);
 			}
-		""" % (name, width, height, name))
+		""" % (abs_path("graphics/%s.png" % name), width, height, abs_path("graphics/%s_pressed.png" % name)))
 		self.setFlat(True)
 		self.setFixedSize(width, height)
 
@@ -192,11 +196,15 @@ class PythonHighlighter(QSyntaxHighlighter):
 			except tokenize.TokenError:
 				pass
 
-class FindBar(QFrame):
-	def __init__(self, textEdit, *args):
-		QFrame.__init__(self, *args)
-		self.setFrameStyle(QFrame.Box | QFrame.Plain)
-		self.setObjectName("findBar") # For styling purposes
+class FindBar(QWidget):
+	def __init__(self, parent, textEdit, *args):
+		QWidget.__init__(self, parent, *args)
+		self._leftCorner = QPixmap()
+		result = self._leftCorner.load(abs_path("graphics/bottom-left.png"))
+		if not result:
+			print "FAILED TO LOAD IMAGE", abs_path("graphics/bottom-left.png")
+		self._rightCorner = QPixmap(abs_path("graphics/bottom-right.png"))
+
 		self.textEdit = textEdit
 		layout = QHBoxLayout()
 		layout.setContentsMargins(4, 4, 4, 4)
@@ -217,8 +225,9 @@ class FindBar(QFrame):
 		safe_connect(self.lineEdit.textEdited, self._findText)
 		self.setFocusProxy(self.lineEdit)
 		
+		self.setObjectName("findBar") # For styling purposes
 		self.setStyleSheet("""
-			QFrame#findBar { border: 0; border-bottom: 1px solid #737373; }
+			#findBar { border: 0; border-bottom: 1px solid #737373; }
 			QLabel { font-size: 10pt; padding-top: 2px; }
 			QLineEdit { font-size: 10pt; border: 1px solid DarkGray; }
 		""")
@@ -243,22 +252,29 @@ class FindBar(QFrame):
 		return QObject.eventFilter(self, obj, event)
 
 	@pyqt_override
-	def showEvent(self, event):
-		self._setBackground(found=True)
+	def paintEvent(self, event):
+		p = QPainter(self)
+		rect = self.rect()
+		# Pull the bottom up by 1 pixel to prevent clipping
+		rect.adjust(0, 0, -1, 0)
 
-		# Adjust the scrollbar in order to keep the text itself stationary
-		scrollBar = self.textEdit.verticalScrollBar()
-		scrollBar.setValue(scrollBar.value() + self.height())		
-
-		self.setFocus()
-		self.lineEdit.selectAll()
+		p.setBrush(QApplication.palette().brush(QPalette.Window))
+		p.setPen(Qt.NoPen)
+		p.drawRoundedRect(rect.adjusted(1, -110, -1, -1), 4, 4)
 		
-	@pyqt_override
-	def hideEvent(self, vent):
-		# Adjust the scrollbar in order to keep the text itself stationary
-		# TODO: Figure out how to make this work without flickering
-		scrollBar = self.textEdit.verticalScrollBar()
-		scrollBar.setValue(scrollBar.value() - self.height())		
+		p.setPen(QColor(142, 142, 142))
+		x = rect.left()
+		imageY = rect.bottom() - self._leftCorner.height() + 1
+		p.drawLine(rect.left(), rect.top(), x, imageY)
+		p.drawPixmap(rect.left(), imageY, self._leftCorner)
+		p.drawLine(rect.right(), rect.top(), rect.right(), imageY)
+		p.drawPixmap(rect.right() - self._rightCorner.width() + 1, imageY, self._rightCorner)
+		p.drawLine(
+			rect.left() + self._leftCorner.width(), 
+			rect.bottom(),
+			rect.right() - self._rightCorner.width(),
+			rect.bottom())
+		QWidget.paintEvent(self, event)
 		
 	def _clearSelection(self):
 		cursor = self.textEdit.textCursor()
@@ -292,12 +308,26 @@ class FindBar(QFrame):
 		"""Basically just a synonym for show(), but allows the text to be set."""
 		if text:
 			self.lineEdit.setText(text)
+		self.lineEdit.selectAll()
+		self.setFocus()
 		self.show()
 		
 	def closeButtonClicked(self, checked):
 		self.hide()
+		self.parent().setFocus()
 
 class KTextEdit(QTextEdit):
+	
+	def __init__(self, *args):
+		QTextEdit.__init__(self, *args)
+		# TODO: This should be a config option
+		self.setStyleSheet("""
+			QTextEdit {
+				color: #eeeeee;
+				background-color: #303030;
+				border: 0;
+			}
+		""")
 
 	def _unindentAt(self, cursor):
 		# Helper for un-indenting a line.
@@ -368,22 +398,14 @@ class Editor(QWidget):
 		layout.setSpacing(0)
 		self.setLayout(layout)
 
-		self.textEdit = KTextEdit()
+		self.textEdit = KTextEdit(self)
 		self.textEdit.setAcceptRichText(False)
 		self.textEdit.setCursorWidth(1)
 		doc = self.textEdit.document()
 		signal_connect(doc.modificationChanged, self.modificationChanged)
 		safe_connect(doc.contentsChanged, self._contentsChanged)
 
-		# Style - should be a config option
-		self.textEdit.setStyleSheet("""
-			QTextEdit {
-				color: #eeeeee;
-				background-color: #303030;
-				border: 0;
-			}
-		""")
-
+		# TODO: The font should be a style/config option
 		fonts = [
 			("Menlo", 12),
 			("Monaco",  12),
@@ -396,12 +418,12 @@ class Editor(QWidget):
 				self.textEdit.setCurrentFont(font)
 				break
 		
-		self.findBar = FindBar(self.textEdit)
-		self.findBar.hide()
-		layout.addWidget(self.findBar)
-
 		layout.addWidget(self.textEdit)
 		self.setFocusProxy(self.textEdit)
+
+		# Note: FindBar is not added to the layout; we place it manually
+		self.findBar = FindBar(self, self.textEdit)
+		self.findBar.hide()
 		
 		self.keyFilter = KeyFilter(window, self)
 		self.textEdit.installEventFilter(self.keyFilter)
@@ -417,6 +439,16 @@ class Editor(QWidget):
 		# If we do this in the constructor, it's not calculated correctly
 		fontMetrics = self.textEdit.fontMetrics()
 		self.textEdit.setTabStopWidth(fontMetrics.width("0000"))
+		
+	@pyqt_override
+	def resizeEvent(self, event):
+		# Lay out the FindBar
+		sizeHint = self.findBar.sizeHint()
+		self.findBar.setGeometry(
+			self.width() - sizeHint.width() - 20,
+			0,
+			sizeHint.width(),
+			sizeHint.height())
 	
 	def _contentsChanged(self):
 		# When the contents of the document change, save the document if no
