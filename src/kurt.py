@@ -199,10 +199,7 @@ class PythonHighlighter(QSyntaxHighlighter):
 class FindBar(QWidget):
 	def __init__(self, parent, textEdit, *args):
 		QWidget.__init__(self, parent, *args)
-		self._leftCorner = QPixmap()
-		result = self._leftCorner.load(abs_path("graphics/bottom-left.png"))
-		if not result:
-			print "FAILED TO LOAD IMAGE", abs_path("graphics/bottom-left.png")
+		self._leftCorner = QPixmap(abs_path("graphics/bottom-left.png"))
 		self._rightCorner = QPixmap(abs_path("graphics/bottom-right.png"))
 
 		self.textEdit = textEdit
