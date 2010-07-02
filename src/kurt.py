@@ -228,6 +228,8 @@ class FindBar(QWidget):
 			QLabel { font-size: 10pt; padding-top: 2px; }
 			QLineEdit { font-size: 10pt; border: 1px solid DarkGray; }
 		""")
+		
+		self._originalCursor = None
 	
 	@pyqt_override
 	def eventFilter(self, obj, event):
@@ -235,7 +237,7 @@ class FindBar(QWidget):
 		and event.modifiers() == Qt.NoModifier):
 			key = event.key()
 			if key == Qt.Key_Escape:
-#				self._clearSelection()
+				self._clearSelection()
 				self.hide()
 				return True
 			elif key == Qt.Key_Return or key == Qt.Key_Down:
@@ -287,6 +289,9 @@ class FindBar(QWidget):
 		if len(text) == 0:
 			self._setBackground(found=True)
 			self._clearSelection()
+			if self._originalCursor:
+				self.textEdit.setTextCursor(self._originalCursor)
+				self._originalCursor = None
 		else:
 			cursor = self.textEdit.textCursor()
 			if includeSelection or not forwards:
@@ -311,7 +316,14 @@ class FindBar(QWidget):
 		
 	def closeButtonClicked(self, checked):
 		self.hide()
-		self.parent().setFocus()
+		
+	@pyqt_override
+	def hideEvent(self, event):
+		self.textEdit.setFocus()
+		
+	@pyqt_override
+	def focusEvent(self, event):
+		self._originalCursor = self.textEdit.textCursor()
 
 class KTextEdit(QTextEdit):
 	
