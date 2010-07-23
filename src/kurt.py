@@ -230,6 +230,12 @@ class FindBar(QWidget):
 		""")
 		
 		self._originalCursor = None
+		
+		self._animationTimer = QTimer(self)
+		safe_connect(self._animationTimer.timeout, self._animationCallback)
+		
+		self.offsetY = 0
+		self.hideThyself(False)
 	
 	@pyqt_override
 	def eventFilter(self, obj, event):
@@ -238,7 +244,7 @@ class FindBar(QWidget):
 			key = event.key()
 			if key == Qt.Key_Escape:
 				self._clearSelection()
-				self.hide()
+				self.hideThyself()
 				return True
 			elif key == Qt.Key_Return or key == Qt.Key_Down:
 				# Go to the next match
@@ -306,20 +312,58 @@ class FindBar(QWidget):
 				self.textEdit.setTextCursor(cursor)
 			self._setBackground(found=not cursor.isNull())
 			
+	def _updatePos(self):
+		self.move(self.x(), self.offsetY)
+			
+	def _animationCallback(self):
+		newOffsetY = self.offsetY + self._animationStep
+		minVal = -self.sizeHint().height()
+		maxVal = 0
+		if not minVal < newOffsetY < maxVal:
+			self._animationTimer.stop()
+		if newOffsetY <= minVal:
+			self.hide()
+		newOffsetY = max(minVal, min(newOffsetY, maxVal))
+		self.offsetY = newOffsetY
+		self._updatePos()
+
+	def _animate(self, duration_msecs, showing=True):
+		endOffset = 0 if showing else -self.sizeHint().height()
+
+		interval = 33 # 30 FPS
+		# TODO: We don't need more than 1 frame per pixel of height
+		frames = max(1, duration_msecs / interval)
+		
+		self._animationTimer.stop()
+		self._animationStep = abs(endOffset - self.offsetY) * 1. / frames
+		if showing:
+			self.show()
+		else:
+			self._animationStep *= -1
+		if duration_msecs == 0:
+			self._animationCallback()
+		else:
+			self._animationTimer.start(interval)
+			
+	def showThyself(self, animated=True):
+		duration = 200 if animated else 0
+		self._animate(duration, True)
+		
+	def hideThyself(self, animated=True):
+		self.textEdit.setFocus()
+		duration = 200 if animated else 0
+		self._animate(duration, False)
+
 	def open(self, text=None):
 		"""Basically just a synonym for show(), but allows the text to be set."""
 		if text:
 			self.lineEdit.setText(text)
 		self.lineEdit.selectAll()
 		self.setFocus()
-		self.show()
-		
+		self.showThyself()
+
 	def closeButtonClicked(self, checked):
-		self.hide()
-		
-	@pyqt_override
-	def hideEvent(self, event):
-		self.textEdit.setFocus()
+		self.hideThyself()
 		
 	@pyqt_override
 	def focusEvent(self, event):
@@ -432,7 +476,6 @@ class Editor(QWidget):
 
 		# Note: FindBar is not added to the layout; we place it manually
 		self.findBar = FindBar(self, self.textEdit)
-		self.findBar.hide()
 		
 		self.keyFilter = KeyFilter(window, self)
 		self.textEdit.installEventFilter(self.keyFilter)
@@ -455,7 +498,7 @@ class Editor(QWidget):
 		sizeHint = self.findBar.sizeHint()
 		self.findBar.setGeometry(
 			self.width() - sizeHint.width() - 20,
-			0,
+			self.findBar.offsetY,
 			sizeHint.width(),
 			sizeHint.height())
 	
