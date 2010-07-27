@@ -1,4 +1,4 @@
-#! /usr/bin/env python2.5
+#! /usr/bin/env python2.6
 
 # Copyright (c) 2010 Patrick Dubroy <pdubroy@gmail.com>
 #
@@ -15,12 +15,17 @@ from __future__ import with_statement
 
 __all__ = ["start_editor"]
 
+import errno
 import inspect
 import keyword
+import logging
+from multiprocessing.connection import Listener, Client
 import os
 import shutil
+import socket
 import StringIO
 import sys
+import thread
 import token
 import tokenize
 import traceback
@@ -28,6 +33,9 @@ import traceback
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
+logging.basicConfig(
+	level=logging.DEBUG,
+	format="[%(levelname)s] %(message)s")
 MAC_OS = sys.platform.startswith("darwin")
 
 def abs_path(relpath):
@@ -694,7 +702,7 @@ class MainWindow(QMainWindow):
 		index = self.tabWidget.addTab(editor, editor.getTitle())
 
 		if filename:
-			editor.open_file(filename)
+			editor.open_file(str(filename))
 		elif contents:
 			editor.textEdit.setText(contents)
 		self.tabWidget.setCurrentIndex(index) # Switch to the new tab
@@ -750,7 +758,7 @@ class MainWindow(QMainWindow):
 		for i in xrange(self.tabWidget.count()):
 			result.append(self.getTab(i).path)
 		return result
-			
+					
 class SessionManager(QObject):
 	def __init__(self):
 		QObject.__init__(self)
@@ -760,7 +768,7 @@ class SessionManager(QObject):
 			QSettings.UserScope,
 			"dubroy.com", 
 			"kurt")
-			
+		self.configDirName = os.path.dirname(str(self.settings.fileName()))
 		self.restoring = False
 		
 		# Figure out if the last session closed cleanly
@@ -768,12 +776,52 @@ class SessionManager(QObject):
 		if self.settings.contains("session/closed-cleanly"):
 			self.closed_cleanly = self.settings.value("session/closed-cleanly").toPyObject()
 		self.settings.setValue("session/closed-cleanly", False)
+		
+		self._pipeName = os.path.join(self.configDirName, "comm_pipe")
+		try:
+			listener = Listener(self._pipeName)
+			thread.start_new_thread(self._listener_thread_main, (listener,))
+		except socket.error, e:
+			# If we get "Address already in use", than another process is running
+			if e.errno != errno.EADDRINUSE:
+				raise
+			self._conn = Client(self._pipeName)
+			self._conn.send("open foobar.txt")
+			self._conn.close()
+			sys.exit(0)
+
+	def _listener_thread_main(self, listener):
+		while True:
+			conn = listener.accept()
+			message = conn.recv()
+			logging.debug("Listener received message '%s'" % message)
+			parts = message.split(" ", 1)
+			cmd = parts[0]
+			if cmd == "quit":
+				break
+			elif cmd == "open":
+				# Using a signal to pass the message to the UI thread
+				self._remoteOpenReq.emit(parts[1])
+			else:
+				logging.warning("Listener received unrecognized command '%s'" % cmd)
+		logging.debug("Exiting listener thread")
+				
+	def _shutdown_listener_thread(self):
+		logging.debug("Attempting to shut down listener thread")
+		conn = Client(self._pipeName)
+		conn.send("quit")
+		conn.close()
+		
+	def _openFromExternalProcess(self, filename):
+		self.win.new_tab(filename)
+		self.win.raise_()
 	
 	def set_window(self, win):
+		self.win = win
 		safe_connect(win.geometryChanged, self.geometryChanged)
 		safe_connect(win.contentsChanged, self.saveTabs)
 		safe_connect(win.windowClosed, self.windowClosed)
-		self.win = win
+		safe_connect(self._remoteOpenReq, self._openFromExternalProcess)
 		
 	def geometryChanged(self):
 		"""Saves the width, height, and position of the window."""
@@ -808,29 +856,32 @@ class SessionManager(QObject):
 		
 	def shutDown(self):
 		app = self.sender()
+		self._shutdown_listener_thread()
 		rc = 0 if self.closed_cleanly else 1
 		app.exit(rc)
-
+		
+	_remoteOpenReq = pyqtSignal(str)
+	
 def start_editor(files=[], contents=[]):
-		app = QApplication(sys.argv)
-		# Create the session manager as early as possible, so we can properly
-		# restore the state after a crash
-		session_manager = SessionManager()
-		win = MainWindow()
-		session_manager.set_window(win)
-		if not session_manager.closed_cleanly or len(files) == 0:
-			session_manager.restore_session()
-		else:
-			session_manager.restore_geometry()
-		for each in files:
-			win.new_tab(filename=each)
-		for each in contents:
-			win.new_tab(contents=each)
-		win.show()
-		if MAC_OS:
-			win.raise_()
-		safe_connect(app.lastWindowClosed, session_manager.shutDown)
-		return app.exec_()
+	app = QApplication(sys.argv)
+	# Create the session manager as early as possible, so we can properly
+	# restore the state after a crash
+	session_manager = SessionManager()
+	win = MainWindow()
+	session_manager.set_window(win)
+	if not session_manager.closed_cleanly or len(files) == 0:
+		session_manager.restore_session()
+	else:
+		session_manager.restore_geometry()
+	for each in files:
+		win.new_tab(filename=each)
+	for each in contents:
+		win.new_tab(contents=each)
+	win.show()
+	if MAC_OS:
+		win.raise_()
+	safe_connect(app.lastWindowClosed, session_manager.shutDown)
+	return app.exec_()
 
 if __name__== "__main__":
 	file_args = sys.argv[1:]
