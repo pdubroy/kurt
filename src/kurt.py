@@ -513,8 +513,10 @@ class Editor(QWidget):
 	def _contentsChanged(self):
 		# When the contents of the document change, save the document if no
 		# more changes are made after 500 seconds have elapsed
-		self._save_timer.stop()
-		self._save_timer.start(500)
+		# Autosave is disabled for now
+		if False:
+			self._save_timer.stop()
+			self._save_timer.start(500)
 		
 	def _saveTimeout(self):
 		if self.path:
