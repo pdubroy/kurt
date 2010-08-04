@@ -1,4 +1,4 @@
-#! /usr/bin/env python2.6
+#! /usr/bin/env python2.5
 
 # Copyright (c) 2010 Patrick Dubroy <pdubroy@gmail.com>
 #
@@ -13,23 +13,21 @@
 
 from __future__ import with_statement
 
-import errno
 import inspect
 import keyword
 import logging
-from multiprocessing.connection import Listener, Client
 import os
 import shutil
-import socket
 import StringIO
 import sys
-import thread
 import token
 import tokenize
 import traceback
 
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
+
+import pipe
 
 MAC_OS = sys.platform.startswith("darwin")
 
@@ -760,51 +758,6 @@ class MainWindow(QMainWindow):
 			result.append(self.getTab(i).path)
 		return result
 		
-class ListenerThread(QObject):
-
-	remoteOpenRequest = pyqtSignal(str)
-
-	def __init__(self, listener, *args):
-		super(QObject, self).__init__()
-		self._listener = listener
-	
-	def start(self):
-		thread.start_new_thread(self.run, ())
-		
-	def run(self):
-		while True:
-			conn = None
-			try:
-				conn = self._listener.accept()
-				logging.debug("Connection accepted")
-				message = conn.recv()
-				logging.debug("Listener received message '%s'" % message)
-				parts = message.split(" ", 1)
-				if parts[0] == "quit":
-					break
-				elif parts[0] == "raise":
-					self.remoteOpenRequest.emit("")
-				elif parts[0] == "open":
-					# Using a signal to pass the message to the UI thread
-					self.remoteOpenRequest.emit(parts[1])
-				else:
-					logging.warning("Listener received unrecognized command '%s'" % cmd)
-			finally:
-				if conn: conn.close()
-		logging.debug("Exiting listener thread")
-		
-	def shutdown(self):
-		"""Shut down the listener thread. This should be called by an outside
-		thread, usually the one that started the listener thread."""
-
-		logging.debug("Attempting to shut down listener thread")
-		client = None
-		try:
-			client = Client(self._listener.address)
-			client.send("quit")
-		finally:
-			if client: client.close()
-		self._listener.close()
 					
 class Kurt(QObject):
 	def __init__(self, settings, listener):
@@ -818,7 +771,7 @@ class Kurt(QObject):
 			self.closed_cleanly = self.settings.value("session/closed-cleanly").toPyObject()
 		self.settings.setValue("session/closed-cleanly", False)
 		
-		self._listener = ListenerThread(listener)
+		self._listener = listener
 		safe_connect(self._listener.remoteOpenRequest, self._openFromExternalProcess)
 
 		self.app = QApplication(sys.argv)
@@ -900,25 +853,17 @@ def main():
 		"dubroy.com", 
 		"kurt")
 	configDirName = os.path.dirname(str(settings.fileName()))
-	pipeName = os.path.join(configDirName, "comm_pipe")
 
 	# Try to create a Listener. If successful, it means no other process is
 	# running. If it fails, then connect to the running process and tell
 	# it to open up the given file(s).
-	listener = None
-	try:
-		listener = Listener(pipeName)
+	listener = pipe.Listener(configDirName)
+	if listener:
 		logging.debug("Starting new instance")
-		import kurt
-		k = kurt.Kurt(settings, listener)
-		k.start()
-	except socket.error, e:
-		# If we get "Address already in use", than another process is running
-		if e.errno != errno.EADDRINUSE:
-			raise
-
+		Kurt(settings, listener).start()
+	else:
 		logging.debug("Connecting to existing instance")
-		conn = Client(pipeName)
+		conn = pipe.Client(configDirName)
 		logging.debug("Connected")
 		
 		# TODO: Parse the command line properly
