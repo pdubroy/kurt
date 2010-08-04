@@ -13,8 +13,6 @@
 
 from __future__ import with_statement
 
-__all__ = ["start_editor"]
-
 import errno
 import inspect
 import keyword
@@ -33,10 +31,11 @@ import traceback
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
+MAC_OS = sys.platform.startswith("darwin")
+
 logging.basicConfig(
 	level=logging.DEBUG,
 	format="[%(levelname)s] %(message)s")
-MAC_OS = sys.platform.startswith("darwin")
 
 def abs_path(relpath):
 	"""Given a path relative to this script, return the absolute path."""
@@ -760,71 +759,81 @@ class MainWindow(QMainWindow):
 		for i in xrange(self.tabWidget.count()):
 			result.append(self.getTab(i).path)
 		return result
-					
-class SessionManager(QObject):
-	def __init__(self):
-		QObject.__init__(self)
-
-		self.settings = QSettings(
-			QSettings.IniFormat,
-			QSettings.UserScope,
-			"dubroy.com", 
-			"kurt")
-		self.configDirName = os.path.dirname(str(self.settings.fileName()))
-		self.restoring = False
 		
+class ListenerThread(QObject):
+
+	remoteOpenRequest = pyqtSignal(str)
+
+	def __init__(self, listener, *args):
+		super(QObject, self).__init__()
+		self._listener = listener
+	
+	def start(self):
+		thread.start_new_thread(self.run, ())
+		
+	def run(self):
+		while True:
+			conn = None
+			try:
+				conn = self._listener.accept()
+				logging.debug("Connection accepted")
+				message = conn.recv()
+				logging.debug("Listener received message '%s'" % message)
+				parts = message.split(" ", 1)
+				if parts[0] == "quit":
+					break
+				elif parts[0] == "raise":
+					self.remoteOpenRequest.emit("")
+				elif parts[0] == "open":
+					# Using a signal to pass the message to the UI thread
+					self.remoteOpenRequest.emit(parts[1])
+				else:
+					logging.warning("Listener received unrecognized command '%s'" % cmd)
+			finally:
+				if conn: conn.close()
+		logging.debug("Exiting listener thread")
+		
+	def shutdown(self):
+		"""Shut down the listener thread. This should be called by an outside
+		thread, usually the one that started the listener thread."""
+
+		logging.debug("Attempting to shut down listener thread")
+		client = None
+		try:
+			client = Client(self._listener.address)
+			client.send("quit")
+		finally:
+			if client: client.close()
+		self._listener.close()
+					
+class Kurt(QObject):
+	def __init__(self, settings, listener):
+		QObject.__init__(self)
+		
+		self.settings = settings
+
 		# Figure out if the last session closed cleanly
 		self.closed_cleanly = True
 		if self.settings.contains("session/closed-cleanly"):
 			self.closed_cleanly = self.settings.value("session/closed-cleanly").toPyObject()
 		self.settings.setValue("session/closed-cleanly", False)
 		
-		self._pipeName = os.path.join(self.configDirName, "comm_pipe")
-		try:
-			listener = Listener(self._pipeName)
-			thread.start_new_thread(self._listener_thread_main, (listener,))
-		except socket.error, e:
-			# If we get "Address already in use", than another process is running
-			if e.errno != errno.EADDRINUSE:
-				raise
-			self._conn = Client(self._pipeName)
-			self._conn.send("open foobar.txt")
-			self._conn.close()
-			sys.exit(0)
+		self._listener = ListenerThread(listener)
+		safe_connect(self._listener.remoteOpenRequest, self._openFromExternalProcess)
 
-	def _listener_thread_main(self, listener):
-		while True:
-			conn = listener.accept()
-			message = conn.recv()
-			logging.debug("Listener received message '%s'" % message)
-			parts = message.split(" ", 1)
-			cmd = parts[0]
-			if cmd == "quit":
-				break
-			elif cmd == "open":
-				# Using a signal to pass the message to the UI thread
-				self._remoteOpenReq.emit(parts[1])
-			else:
-				logging.warning("Listener received unrecognized command '%s'" % cmd)
-		logging.debug("Exiting listener thread")
-				
-	def _shutdown_listener_thread(self):
-		logging.debug("Attempting to shut down listener thread")
-		conn = Client(self._pipeName)
-		conn.send("quit")
-		conn.close()
-		
+		self.app = QApplication(sys.argv)
+		safe_connect(self.app.lastWindowClosed, self.shutDown)
+
+		self.win = MainWindow()
+		safe_connect(self.win.geometryChanged, self.geometryChanged)
+		safe_connect(self.win.contentsChanged, self.saveTabs)
+		safe_connect(self.win.windowClosed, self.windowClosed)
+
 	def _openFromExternalProcess(self, filename):
-		self.win.new_tab(filename)
+		if len(filename) > 0:
+			self.win.new_tab(filename)
 		self.win.raise_()
 	
-	def set_window(self, win):
-		self.win = win
-		safe_connect(win.geometryChanged, self.geometryChanged)
-		safe_connect(win.contentsChanged, self.saveTabs)
-		safe_connect(win.windowClosed, self.windowClosed)
-		safe_connect(self._remoteOpenReq, self._openFromExternalProcess)
-		
 	def geometryChanged(self):
 		"""Saves the width, height, and position of the window."""
 		if not self.restoring:
@@ -856,41 +865,70 @@ class SessionManager(QObject):
 		self.restore_geometry()
 		self.restoreTabs()
 		
-	def shutDown(self):
-		app = self.sender()
-		self._shutdown_listener_thread()
-		rc = 0 if self.closed_cleanly else 1
-		app.exit(rc)
+	def start(self, files=[], contents=[]):
+		self._listener.start()
 		
-	_remoteOpenReq = pyqtSignal(str)
+		if not self.closed_cleanly or len(files) == 0:
+			self.restore_session()
+		else:
+			self.restore_geometry()
 	
-def start_editor(files=[], contents=[]):
-	app = QApplication(sys.argv)
-	# Create the session manager as early as possible, so we can properly
-	# restore the state after a crash
-	session_manager = SessionManager()
-	win = MainWindow()
-	session_manager.set_window(win)
-	if not session_manager.closed_cleanly or len(files) == 0:
-		session_manager.restore_session()
-	else:
-		session_manager.restore_geometry()
-	for each in files:
-		win.new_tab(filename=each)
-	for each in contents:
-		win.new_tab(contents=each)
-	win.show()
-	if MAC_OS:
-		win.raise_()
-	safe_connect(app.lastWindowClosed, session_manager.shutDown)
-	return app.exec_()
+		for each in files:
+			self.win.new_tab(filename=each)
+		for each in contents:
+			self.win.new_tab(contents=each)
 
-if __name__== "__main__":
-	file_args = sys.argv[1:]
-
+		self.win.show()
+		self.win.raise_()
+		return self.app.exec_()
+		
+	def shutDown(self):
+		self._listener.shutdown()
+		rc = 0 if self.closed_cleanly else 1
+		self.app.exit(rc)
+	
+def main():
 	# On Mac OS, there is an extra arg with the process serial number
 	# when we are launched from Finder. Just ignore it.
 	if MAC_OS and len(sys.argv) > 1 and sys.argv[1].startswith("-psn_"):
 		file_args.pop(0)
+	args = sys.argv[1:]
 
-	start_editor(file_args)
+	settings = QSettings(
+		QSettings.IniFormat, 
+		QSettings.UserScope, 
+		"dubroy.com", 
+		"kurt")
+	configDirName = os.path.dirname(str(settings.fileName()))
+	pipeName = os.path.join(configDirName, "comm_pipe")
+
+	# Try to create a Listener. If successful, it means no other process is
+	# running. If it fails, then connect to the running process and tell
+	# it to open up the given file(s).
+	listener = None
+	try:
+		listener = Listener(pipeName)
+		logging.debug("Starting new instance")
+		import kurt
+		k = kurt.Kurt(settings, listener)
+		k.start()
+	except socket.error, e:
+		# If we get "Address already in use", than another process is running
+		if e.errno != errno.EADDRINUSE:
+			raise
+
+		logging.debug("Connecting to existing instance")
+		conn = Client(pipeName)
+		logging.debug("Connected")
+		
+		# TODO: Parse the command line properly
+		# For now, we assume that everything is a filename
+		if len(sys.argv) > 1:
+			for each in sys.argv[1:]:
+				conn.send("open " + each)
+		else:
+			conn.send("raise")
+		conn.close()
+
+if __name__ == "__main__":
+	main()	
