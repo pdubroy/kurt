@@ -11,46 +11,72 @@
 # FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
 # more details.
 
+import atexit
 import errno
 import logging
-import multiprocessing.connection
 import os
 import socket
 import thread
 
 from PyQt4.QtCore import *
 
+__all__ = ["Listener", "Client"]
+
+_socket_files = []
+
+def _cleanup():
+	for each in _socket_files:
+		try:
+			os.remove(each)
+			logging.warning("Socket not cleaned up: " + each)
+		except OSError, e:
+			pass
+	
+atexit.register(_cleanup)
+
 class _Listener(QObject):
 
 	remoteOpenRequest = pyqtSignal(str)
 
-	def __init__(self, mp_listener, *args):
+	def __init__(self, sock, *args):
 		super(QObject, self).__init__()
-		self._listener = mp_listener
+		self._socket = sock
+		self._socket.listen(1)
 	
 	def start(self):
 		thread.start_new_thread(self.run, ())
+
+	def _handle_connection(self, conn):
+		try:
+			logging.debug("Connection accepted")
+			message = conn.recv(1024)
+			logging.debug("Listener received message '%s'" % message)
+			parts = message.split(" ", 1)
+			if parts[0] == "quit":
+				return False
+			elif parts[0] == "raise":
+				self.remoteOpenRequest.emit("")
+			elif parts[0] == "open":
+				# Using a signal to pass the message to the UI thread
+				self.remoteOpenRequest.emit(parts[1])
+			else:
+				logging.warning("Listener received unrecognized command '%s'" % cmd)
+		finally:
+			conn.close()
+		return True
 		
 	def run(self):
-		while True:
-			conn = None
-			try:
-				conn = self._listener.accept()
-				logging.debug("Connection accepted")
-				message = conn.recv()
-				logging.debug("Listener received message '%s'" % message)
-				parts = message.split(" ", 1)
-				if parts[0] == "quit":
+		filename = None
+		try:
+			filename = self._socket.getsockname()
+
+			while True:
+				conn, addr = self._socket.accept()
+				if not self._handle_connection(conn):
 					break
-				elif parts[0] == "raise":
-					self.remoteOpenRequest.emit("")
-				elif parts[0] == "open":
-					# Using a signal to pass the message to the UI thread
-					self.remoteOpenRequest.emit(parts[1])
-				else:
-					logging.warning("Listener received unrecognized command '%s'" % cmd)
-			finally:
-				if conn: conn.close()
+		finally:
+			self._socket.close()
+			if filename: os.remove(filename) # Clean up the UNIX domain socket file
 		logging.debug("Exiting listener thread")
 		
 	def shutdown(self):
@@ -58,13 +84,14 @@ class _Listener(QObject):
 		thread, usually the one that started the listener thread."""
 
 		logging.debug("Attempting to shut down listener thread")
-		client = None
+		addr = self._socket.getsockname()
+		client_sock = None
 		try:
-			client = multiprocessing.connection.Client(self._listener.address)
-			client.send("quit")
+			client_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			client_sock.connect(addr)
+			client_sock.send("quit")
 		finally:
-			if client: client.close()
-		self._listener.close()
+			if client_sock: client_sock.close()
 
 def _get_pipe_name(config_dir):
 	return os.path.join(config_dir, "sock")
@@ -72,14 +99,20 @@ def _get_pipe_name(config_dir):
 def Listener(config_dir):
 	listener = None	
 	try:
-		mp_listener = multiprocessing.connection.Listener(_get_pipe_name(config_dir))
-		listener = _Listener(mp_listener)
+		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		filename = _get_pipe_name(config_dir)
+		sock.bind(filename)
+		_socket_files.append(filename) # Put this in the list to be cleaned up
+		listener = _Listener(sock)
 	except socket.error, e:
 		# If we get "Address already in use", than another process is running
 		if e.errno != errno.EADDRINUSE:
 			raise
 			
 	return listener
-	
+
 def Client(config_dir):
-	return multiprocessing.connection.Client(_get_pipe_name(config_dir))
+	sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+	sock.connect(_get_pipe_name(config_dir))
+	return sock
+
