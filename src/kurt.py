@@ -844,7 +844,7 @@ def main():
 	# On Mac OS, there is an extra arg with the process serial number
 	# when we are launched from Finder. Just ignore it.
 	if MAC_OS and len(sys.argv) > 1 and sys.argv[1].startswith("-psn_"):
-		file_args.pop(0)
+		sys.argv.pop(1)
 	args = sys.argv[1:]
 
 	settings = QSettings(
