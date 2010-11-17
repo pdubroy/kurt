@@ -28,7 +28,6 @@ def _cleanup():
 	for each in _socket_files:
 		try:
 			os.remove(each)
-			logging.warning("Socket not cleaned up: " + each)
 		except OSError, e:
 			pass
 	
@@ -58,7 +57,7 @@ class _Listener(QObject):
 				self.remoteOpenRequest.emit("")
 			elif parts[0] == "open":
 				# Using a signal to pass the message to the UI thread
-				self.remoteOpenRequest.emit(parts[1])
+				self.remoteOpenRequest.emit(os.path.abspath(parts[1]))
 			else:
 				logging.warning("Listener received unrecognized command '%s'" % cmd)
 		finally:
@@ -106,7 +105,7 @@ def Listener(config_dir):
 		listener = _Listener(sock)
 	except socket.error, e:
 		# If we get "Address already in use", than another process is running
-		if e.errno != errno.EADDRINUSE:
+		if e[0] != errno.EADDRINUSE:
 			raise
 			
 	return listener

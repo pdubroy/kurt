@@ -50,13 +50,9 @@ logging.basicConfig(
 			logging.debug("Connecting to existing instance")
 
 			conn = Client(pipeName)
-			# TODO: Parse the command line properly
-			# For now, we assume that everything is a filename
-			if len(sys.argv) > 1:
-				for each in sys.argv[1:]:
-					conn.send("open " + each)
-			else:
-				conn.send("raise")
+			for each in args:
+				conn.send("open " + each)
+			conn.send("raise")
 			conn.close()
 		finally:
 			if listener: os.unlink(pipeName)

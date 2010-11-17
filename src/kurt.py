@@ -16,6 +16,7 @@ from __future__ import with_statement
 import inspect
 import keyword
 import logging
+import optparse
 import os
 import shutil
 import StringIO
@@ -86,7 +87,7 @@ class KeyFilter(QObject):
 			("Control", "O"): win.open_file,
 			("Control", "S"): tab.save,
 			("Control", "W"): tab.closeTab,
-			("Control", "R"): win.reloadAndRestart,
+#			("Control", "R"): win.reloadAndRestart,
 			("Control", "F"): tab.find,
 			("Control", "L"): tab.gotoLine
 		}
@@ -760,7 +761,7 @@ class MainWindow(QMainWindow):
 		
 					
 class Kurt(QObject):
-	def __init__(self, settings, listener):
+	def __init__(self, settings, listener=None):
 		QObject.__init__(self)
 		
 		self.settings = settings
@@ -770,9 +771,10 @@ class Kurt(QObject):
 		if self.settings.contains("session/closed-cleanly"):
 			self.closed_cleanly = self.settings.value("session/closed-cleanly").toPyObject()
 		self.settings.setValue("session/closed-cleanly", False)
-		
+
 		self._listener = listener
-		safe_connect(self._listener.remoteOpenRequest, self._openFromExternalProcess)
+		if listener:
+			safe_connect(self._listener.remoteOpenRequest, self._openFromExternalProcess)
 
 		self.app = QApplication(sys.argv)
 		safe_connect(self.app.lastWindowClosed, self.shutDown)
@@ -781,6 +783,8 @@ class Kurt(QObject):
 		safe_connect(self.win.geometryChanged, self.geometryChanged)
 		safe_connect(self.win.contentsChanged, self.saveTabs)
 		safe_connect(self.win.windowClosed, self.windowClosed)
+		
+		self.restoring = False
 
 	def _openFromExternalProcess(self, filename):
 		if len(filename) > 0:
@@ -819,7 +823,8 @@ class Kurt(QObject):
 		self.restoreTabs()
 		
 	def start(self, files=[], contents=[]):
-		self._listener.start()
+		if self._listener:
+			self._listener.start()
 		
 		if not self.closed_cleanly or len(files) == 0:
 			self.restore_session()
@@ -836,7 +841,8 @@ class Kurt(QObject):
 		return self.app.exec_()
 		
 	def shutDown(self):
-		self._listener.shutdown()
+		if self._listener:
+			self._listener.shutdown()
 		rc = 0 if self.closed_cleanly else 1
 		self.app.exit(rc)
 	
@@ -845,8 +851,7 @@ def main():
 	# when we are launched from Finder. Just ignore it.
 	if MAC_OS and len(sys.argv) > 1 and sys.argv[1].startswith("-psn_"):
 		sys.argv.pop(1)
-	args = sys.argv[1:]
-
+		
 	settings = QSettings(
 		QSettings.IniFormat, 
 		QSettings.UserScope, 
@@ -854,13 +859,23 @@ def main():
 		"kurt")
 	configDirName = os.path.dirname(str(settings.fileName()))
 
+	parser = optparse.OptionParser()
+	parser.add_option("-w", "--wait", action="store_true",
+		help="Open a new Kurt instance and wait until it exists")
+
+	options, args = parser.parse_args()
+
+	if options.wait:
+		Kurt(settings).start(args)
+		return
+
 	# Try to create a Listener. If successful, it means no other process is
 	# running. If it fails, then connect to the running process and tell
 	# it to open up the given file(s).
 	listener = pipe.Listener(configDirName)
 	if listener:
 		logging.debug("Starting new instance")
-		Kurt(settings, listener).start()
+		Kurt(settings, listener).start(args)
 	else:
 		logging.debug("Connecting to existing instance")
 		conn = pipe.Client(configDirName)
