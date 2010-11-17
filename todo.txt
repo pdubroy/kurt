@@ -1,5 +1,2 @@
 Features:
 - restore selected tab, scroll state, and cursor pos
-
-Bugs:
-- unhandled exception when closing last tab
